@@ -295,7 +295,7 @@ void LIVMapper::handleFirstFrame()
     cout << "FIRST LIDAR FRAME!" << endl;
   }
 }
-
+// 重力对齐只在初始时执行一次，作用是将全局坐标系对齐为 z 轴向下。
 void LIVMapper::gravityAlignment() 
 {
   if (!p_imu->imu_need_init && !gravity_align_finished) 
@@ -353,7 +353,7 @@ void LIVMapper::handleVIO()
   fout_pre << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
             << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
             << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
-    
+  // pcl_w_wait_pub是通过LIO更新的，保存了LIO更新的点云的世界坐标系
   if (pcl_w_wait_pub->empty() || (pcl_w_wait_pub == nullptr)) 
   {
     std::cout << "[ VIO ] No point!!!" << std::endl;
@@ -370,7 +370,10 @@ void LIVMapper::handleVIO()
   {
     vio_manager->plot_flag = false;
   }
-
+  // _pv_list保存了LIO更新的点云点可以用到的所有信息
+  // voxelmap_manager->voxel_map_就是那个哈希表
+  // 因为雷达是单独存的，而IMU和IMAGE是共享的MeasureGroup结构体，所以这个LidarMeasures.measures.back()就是那个图像，因为里面目前的结构是[IMU，Image]
+  // 之前在sync_packages里面已经知道，last_lio_update_time就是相机时间戳，所以这里相当于算的是相对于第一帧雷达的时间（_first_lidar_time应该算是时间起点了）
   vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
 
   if (imu_prop_enable) 
@@ -414,30 +417,36 @@ void LIVMapper::handleLIO()
     std::cout << "[ LIO ]: No point!!!" << std::endl;
     return;
   }
-
+  // 降采样
   double t0 = omp_get_wtime();
 
   downSizeFilterSurf.setInputCloud(feats_undistort);
   downSizeFilterSurf.filter(*feats_down_body);
   
   double t_down = omp_get_wtime();
-
+  // 点云传递 feats_down_world_ 和 feats_down_size_
   feats_down_size = feats_down_body->points.size();
   voxelmap_manager->feats_down_body_ = feats_down_body;
+  // 将雷达坐标系 -> 世界坐标系
   transformLidar(_state.rot_end, _state.pos_end, feats_down_body, feats_down_world);
   voxelmap_manager->feats_down_world_ = feats_down_world;
   voxelmap_manager->feats_down_size_ = feats_down_size;
-  
+  // 地图初始化
   if (!lidar_map_inited) 
   {
     lidar_map_inited = true;
     voxelmap_manager->BuildVoxelMap();
   }
-
+  // 状态估计
   double t1 = omp_get_wtime();
 
   voxelmap_manager->StateEstimation(state_propagat);
+  // 返回更新状态
   _state = voxelmap_manager->state_;
+  // pv_list 是带协方差的特征点列表，包含：
+  // 点的位置：body frame、IMU frame、world frame
+  // 协方差信息：body_var、var 等
+  // 其他信息：point_crossmat（点的反对称矩阵）、normal 等
   _pv_list = voxelmap_manager->pv_list_;
 
   double t2 = omp_get_wtime();
@@ -446,10 +455,11 @@ void LIVMapper::handleLIO()
   {
     ekf_finish_once = true;
     latest_ekf_state = _state;
+    // 这个值已经在IMU点云去畸变的时候变成lio_time
     latest_ekf_time = LidarMeasures.last_lio_update_time;
     state_update_flg = true;
   }
-
+  // 按照 T x y z qx qy qz qw 的 TUM/EVO 格式将当前帧的位姿写入磁盘。 通常用于 EVO 评估
   if (pose_output_en) 
   {
     static bool pos_opend = false;
@@ -472,17 +482,20 @@ void LIVMapper::handleLIO()
     evoFile << LidarMeasures.last_lio_update_time << " " << _state.pos_end[0] << " " << _state.pos_end[1] << " " << _state.pos_end[2] << " "
             << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << std::endl;
   }
-  
+  // 发布里程计信息到pubOdomAftMapped对应的话题中
   euler_cur = RotMtoEuler(_state.rot_end);
   geoQuat = tf::createQuaternionMsgFromRollPitchYaw(euler_cur(0), euler_cur(1), euler_cur(2));
   publish_odometry(pubOdomAftMapped);
 
+  // 地图更新，计算点的协方差并更新体素地图。
   double t3 = omp_get_wtime();
 
   PointCloudXYZI::Ptr world_lidar(new PointCloudXYZI());
+  // 将雷达坐标系 -> 世界坐标系
   transformLidar(_state.rot_end, _state.pos_end, feats_down_body, world_lidar);
   for (size_t i = 0; i < world_lidar->points.size(); i++) 
   {
+    // 这一步重利用了pv_list_[i]的结构，把feats_down_body按照优化后的位转换到世界坐标系，然后更新体素地图。
     voxelmap_manager->pv_list_[i].point_w << world_lidar->points[i].x, world_lidar->points[i].y, world_lidar->points[i].z;
     M3D point_crossmat = voxelmap_manager->cross_mat_list_[i];
     M3D var = voxelmap_manager->body_cov_list_[i];
@@ -490,28 +503,32 @@ void LIVMapper::handleLIO()
           (-point_crossmat) * _state.cov.block<3, 3>(0, 0) * (-point_crossmat).transpose() + _state.cov.block<3, 3>(3, 3);
     voxelmap_manager->pv_list_[i].var = var;
   }
+  // 计算平面协方差：在 init_plane 中，通过雅可比传播将点的不确定性传播到平面参数的不确定性
+  // 匹配判断：在 build_single_residual 中，结合平面和点的不确定性，判断点是否属于该平面
   voxelmap_manager->UpdateVoxelMap(voxelmap_manager->pv_list_);
   std::cout << "[ LIO ] Update Voxel Map" << std::endl;
   _pv_list = voxelmap_manager->pv_list_;
   
   double t4 = omp_get_wtime();
-
+  // 如果开启了滑窗功能，移除距离当前位置过远的体素，以控制内存占用。
   if(voxelmap_manager->config_setting_.map_sliding_en)
   {
     voxelmap_manager->mapSliding();
   }
-  
+  // 选用稠密地图还是降采样后的点云进行
   PointCloudXYZI::Ptr laserCloudFullRes(dense_map_en ? feats_undistort : feats_down_body);
   int size = laserCloudFullRes->points.size();
   PointCloudXYZI::Ptr laserCloudWorld(new PointCloudXYZI(size, 1));
 
   for (int i = 0; i < size; i++) 
   {
+    // 简单的将点从IMU转换到世界坐标系
     RGBpointBodyToWorld(&laserCloudFullRes->points[i], &laserCloudWorld->points[i]);
   }
   *pcl_w_wait_pub = *laserCloudWorld;
-
+  // 发布当前帧的点云到 ROS
   publish_frame_world(pubLaserCloudFullRes, vio_manager);
+  // 可选，发布有效特征点（即参与了状态估计的点）
   if (pub_effect_point_en) publish_effect_world(pubLaserCloudEffect, voxelmap_manager->ptpl_list_);
   if (voxelmap_manager->config_setting_.is_pub_plane_map_) voxelmap_manager->pubVoxelMap();
   publish_path(pubPath);
@@ -751,6 +768,7 @@ template <typename T> Matrix<T, 3, 1> LIVMapper::pointBodyToWorld(const Matrix<T
 void LIVMapper::RGBpointBodyToWorld(PointType const *const pi, PointType *const po)
 {
   V3D p_body(pi->x, pi->y, pi->z);
+  // extR 和 extT 是 雷达到IMU的
   V3D p_global(_state.rot_end * (extR * p_body + extT) + _state.pos_end);
   po->x = p_global(0);
   po->y = p_global(1);
@@ -765,6 +783,7 @@ void LIVMapper::RGBpointBodyToWorld(PointType const *const pi, PointType *const 
 void LIVMapper::RGBpointBodyLidarToIMU(PointType const *const pi, PointType *const po)
 {
   V3D p_body_lidar(pi->x, pi->y, pi->z);
+  // extR 和 extT 是 IMU到雷达的
   V3D p_body_imu(extR * p_body_lidar + extT);
 
   po->x = p_body_imu(0);
@@ -902,7 +921,6 @@ cv::Mat LIVMapper::getImageFromMsg(const sensor_msgs::msg::Image::ConstSharedPtr
   return img;
 }
 
-// static int i = 0;
 void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
 {
   if (!img_en) return;
@@ -921,6 +939,7 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
     if (++frame_counter % 4 != 0) return;
   }
   // double msg_header_time =  stamp2Sec(msg->header.stamp);
+  // 消除硬同步时图像帧读取上一个雷达的时间帧的共享内存带来的时间差
   double msg_header_time = stamp2Sec(msg->header.stamp) + img_time_offset;
   if (abs(msg_header_time - last_timestamp_img) < 0.001) return;
   RCLCPP_INFO(this->node->get_logger(), "Get image, its header time: %.6f", msg_header_time);
@@ -928,6 +947,7 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
 
   if (msg_header_time < last_timestamp_img)
   {
+    // 放rosbag时反复重新放同一个包时会报这个错误
     RCLCPP_ERROR(this->node->get_logger(), "image loop back. \n");
     return;
   }
@@ -958,6 +978,21 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
   sig_buffer.notify_all();
 }
 
+// 把lid_raw_data_buffer、img_buffer、imu_buffer中的数据打包进meas中，为下一次更新准备数据
+// 在LIVO模式下，严格保证LIO VIO交叉进行
+// 牢记一点，雷达更新时间就是图像帧到达的时间,相机更新时间也是图像帧到达时间。
+// 中间会根据相机图像帧去将点云分开。
+// lio_time和vio_time的作用是为了确定下次更新的数据结束位置。
+// last_lio_update_time 就是 上次lio_time
+
+
+// 记住就完了：
+// lio_time会被更新为相机时间戳
+// 在进行完点云去畸变后，last_lio_update_time = lio_time
+// 除此之外， last_lio_update_time只会在未初始化时被初始化为当前雷达帧的起始时间，last_lio_update_time要么是相机时间戳，要么是初始化时的当前雷达帧的起始时间。
+// 点云去畸变 -> LIO / VIO
+// 在进行LIO过程中，last_lio_update_time 和 lio_time是一样的（因为经过点云去畸变了），都表示这次使用的雷达帧的结束时间（下一次VIO要用图像的时间戳）。
+// 在进行VIO过程中，last_lio_update_time就是此次要使用的相机时间戳，此时last_lio_update_time = lio_time = vio_time
 bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
   if (lid_raw_data_buffer.empty() && lidar_en) return false;
@@ -1011,6 +1046,9 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     lidar_pushed = false; // sync one whole lidar scan.
     return true;
 
+
+    // 数据组成： 雷达数据以及到该雷达数据结束的时间的imu数据
+    // 且一次只取一次雷达数据。
     break;
   }
 
@@ -1024,18 +1062,17 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     {
     // double img_capture_time = meas.lidar_frame_beg_time + exposure_time_init;
     case WAIT:
+    // 刚做完VIO更新，现在为LIO更新准备数据，我需要把数据
     case VIO:
     {
-      // printf("!!! meas.lio_vio_flg: %d \n", meas.lio_vio_flg);
+      // 因为相机在按下快门后，会经过曝光才能拍摄出来，如果这里img_time_buffer的时间是按下快门的时间，这里需要加上曝光时间，不过配置里面是0
       double img_capture_time = img_time_buffer.front() + exposure_time_init;
       /*** has img topic, but img topic timestamp larger than lidar end time,
        * process lidar topic. After LIO update, the meas.lidar_frame_end_time
        * will be refresh. ***/
       if (meas.last_lio_update_time < 0.0) meas.last_lio_update_time = lid_header_time_buffer.front();
-      // printf("[ Data Cut ] wait \n");
-      // printf("[ Data Cut ] last_lio_update_time: %lf \n",
-      // meas.last_lio_update_time);
-
+      
+      // 雷达和IMU的最新时间
       double lid_newest_time = lid_header_time_buffer.back() + lid_raw_data_buffer.back()->points.back().curvature / double(1000);
       double imu_newest_time = stamp2Sec(imu_buffer.back()->header.stamp);
 
@@ -1049,19 +1086,16 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 
       if (img_capture_time > lid_newest_time || img_capture_time > imu_newest_time)
       {
-        // RCLCPP_ERROR(this->node->get_logger(), "lost first camera frame");
-        // printf("img_capture_time, lid_newest_time, imu_newest_time: %lf , %lf
-        // , %lf \n", img_capture_time, lid_newest_time, imu_newest_time);
         return false;
       }
-
+      // 前面的判定应该是为了保证image的时间正好在上次Lidar update之后，同时要保证雷达和IMU数据覆盖到这个image
       struct MeasureGroup m;
 
-      // printf("[ Data Cut ] LIO \n");
-      // printf("[ Data Cut ] img_capture_time: %lf \n", img_capture_time);
       m.imu.clear();
+      // lio_time是相机时间戳
       m.lio_time = img_capture_time;
       mtx_buffer.lock();
+      // 只要上次雷达更新之后，到这次image图像之间的imu数据。
       while (!imu_buffer.empty())
       {
         if (stamp2Sec(imu_buffer.front()->header.stamp) > m.lio_time) break;
@@ -1069,21 +1103,25 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
         if (stamp2Sec(imu_buffer.front()->header.stamp) > meas.last_lio_update_time) m.imu.push_back(imu_buffer.front());
 
         imu_buffer.pop_front();
-        // printf("[ Data Cut ] imu time: %lf \n",
-        // stamp2Sec(imu_buffer.front()->header.stamp));
       }
       mtx_buffer.unlock();
       sig_buffer.notify_all();
-
+      // 将上次切割剩下一半的点云转移到当前的队列
       *(meas.pcl_proc_cur) = *(meas.pcl_proc_next);
       PointCloudXYZI().swap(*meas.pcl_proc_next);
 
+      // 这个限容是新加的，ros1代码里面没有
       int lid_frame_num = lid_raw_data_buffer.size();
       int max_size = meas.pcl_proc_cur->size() + 24000 * lid_frame_num;
       meas.pcl_proc_cur->reserve(max_size);
       meas.pcl_proc_next->reserve(max_size);
       // deque<PointCloudXYZI::Ptr> lidar_buffer_tmp;
 
+
+      // 对后续的雷达帧进行分流，对于正好处于该图像帧之间的点云，其前面一半（以及在之前早于该图像帧但还没拿来更新的点云）被放入pcl_proc_cur，相对时间戳改为针对上一次的lidar更新时间，准备进行下一次更新
+      // 后一半被放入pcl_proc_next， 相对时间戳改为对这个图像的位移（lio_times）
+      // 这个就要要求VIO和LIO是在同一个时间被更新（也就是每次更新后，last_lio_update_time = lio_time），不然的话，pcl_proc_next移进来的数据是针对上次VIO捕捉的图像的（lio_time），而你现在新加入pcl_proc_cur的点云是相对于上次LIO更新的。
+      // 已经确定last_lio_update_time 记录上一次 LIO 更新的时间戳，并在每次 LIO 更新完成后被设置为 lio_time
       while (!lid_raw_data_buffer.empty())
       {
         if (lid_header_time_buffer.front() > img_capture_time) break;
@@ -1111,14 +1149,10 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 
       meas.measures.push_back(m);
       meas.lio_vio_flg = LIO;
-      // meas.last_lio_update_time = m.lio_time;
-      // printf("!!! meas.lio_vio_flg: %d \n", meas.lio_vio_flg);
-      // printf("[ Data Cut ] pcl_proc_cur number: %d \n", meas.pcl_proc_cur
-      // ->points.size()); printf("[ Data Cut ] LIO process time: %lf \n",
-      // omp_get_wtime() - t0);
+      
       return true;
     }
-
+    // 刚做完LIO，准备VIO数据
     case LIO:
     {
       double img_capture_time = img_time_buffer.front() + exposure_time_init;
@@ -1132,15 +1166,7 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
       m.lio_time = meas.last_lio_update_time;
       m.img = img_buffer.front();
       mtx_buffer.lock();
-      // while ((!imu_buffer.empty() && (imu_time < img_capture_time)))
-      // {
-      //   imu_time = stamp2Sec(imu_buffer.front()->header.stamp);
-      //   if (imu_time > img_capture_time) break;
-      //   m.imu.push_back(imu_buffer.front());
-      //   imu_buffer.pop_front();
-      //   printf("[ Data Cut ] imu time: %lf \n",
-      //   stamp2Sec(imu_buffer.front()->header.stamp));
-      // }
+
       img_buffer.pop_front();
       img_time_buffer.pop_front();
       mtx_buffer.unlock();
@@ -1213,7 +1239,7 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
   PointCloudXYZRGB::Ptr laserCloudWorldRGB(new PointCloudXYZRGB());
   static int pub_num = 1;
   pub_num++;
-
+  // 将视觉图像的颜色“贴”到激光雷达点云上。这个只利用目前帧的图像，这部分就是投影加插值
   if (LidarMeasures.lio_vio_flg == VIO)
   {
     *pcl_wait_pub += *pcl_w_wait_pub;
@@ -1234,7 +1260,7 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
         V3D p_w(pcl_wait_pub->points[i].x, pcl_wait_pub->points[i].y, pcl_wait_pub->points[i].z);
         V3D pf(vio_manager->new_frame_->w2f(p_w)); if (pf[2] < 0) continue;
         V2D pc(vio_manager->new_frame_->w2c(p_w));
-
+        // 获取插值后的像素
         if (vio_manager->new_frame_->cam_->isInFrame(pc.cast<int>(), 3)) // 100
         {
           V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
