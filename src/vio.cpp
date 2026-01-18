@@ -41,12 +41,31 @@ void VIOManager::setLidarToCameraExtrinsic(vector<double> &R, vector<double> &P)
 
 void VIOManager::initializeVIO()
 {
+  // 添加：初始化相机类型
+  if (dynamic_cast<vk::PinholeCamera*>(cam)) {
+    cam_model_type = "Pinhole";
+  } else if (dynamic_cast<vk::EquidistantCamera*>(cam)) {
+      cam_model_type = "EquidistantCamera";
+  } else {
+    printf("Unsupported camera model: %s\n!!", cam_model_type.c_str());
+  }
+
+
+
   visual_submap = new SubSparseMap;
 
   fx = cam->fx();
   fy = cam->fy();
   cx = cam->cx();
   cy = cam->cy();
+  // 添加：初始化等距投影参数
+  vk::EquidistantCamera* equidistant_cam = dynamic_cast<vk::EquidistantCamera*>(cam);
+  if (equidistant_cam) {
+    k1 = equidistant_cam->k1();
+    k2 = equidistant_cam->k2();
+    k3 = equidistant_cam->k3();
+    k4 = equidistant_cam->k4();
+  }
   image_resize_factor = cam->scale();
 
   printf("intrinsic: %.6lf, %.6lf, %.6lf, %.6lf\n", fx, fy, cx, cy);
@@ -128,19 +147,45 @@ void VIOManager::initializeVIO()
 
   if(colmap_output_en)
   {
-    pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
-    fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
-    fout_colmap << "# Image list with two lines of data per image:\n";
-    fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
-    fout_colmap << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
-    fout_camera.open(DEBUG_FILE_DIR("Colmap/sparse/0/cameras.txt"), ios::out);
-    fout_camera << "# Camera list with one line of data per camera:\n";
-    fout_camera << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
-    fout_camera << "1 PINHOLE " << width << " " << height << " "
-        << std::fixed << std::setprecision(6)  // 控制浮点数精度为10位
-        << fx << " " << fy << " "
-        << cx << " " << cy << std::endl;
-    fout_camera.close();
+    // 添加：初始化colmap文件
+    if(cam_model_type == "Pinhole") {
+      pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
+      fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
+      fout_colmap << "# Image list with two lines of data per image:\n";
+      fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
+      fout_colmap << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
+      fout_camera.open(DEBUG_FILE_DIR("Colmap/sparse/0/cameras.txt"), ios::out);
+      fout_camera << "# Camera list with one line of data per camera:\n";
+      fout_camera << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
+      fout_camera << "1 PINHOLE " << width << " " << height << " "
+          << std::fixed << std::setprecision(6)  // 控制浮点数精度为10位
+          << fx << " " << fy << " "
+          << cx << " " << cy << std::endl;
+      fout_camera.close();
+    } else if (cam_model_type == "EquidistantCamera") {
+      
+      // 2. 初始化 images.txt (头部信息是一样的)
+      fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
+      fout_colmap << "# Image list with two lines of data per image:\n";
+      fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
+      fout_colmap << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
+
+      // 3. 初始化 cameras.txt (关键部分)
+      fout_camera.open(DEBUG_FILE_DIR("Colmap/sparse/0/cameras.txt"), ios::out);
+      fout_camera << "# Camera list with one line of data per camera:\n";
+      fout_camera << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
+      
+      // 4. 输出 RADIAL_FISHEYE 模型
+      // 这里的 k1, k2, k3, k4 需要替换成你实际获取这些变量的方式
+      // 比如: fisheye_cam->k1 或直接使用外部定义的 k1
+      fout_camera << "1 RADIAL_FISHEYE " << width << " " << height << " "
+          << std::fixed << std::setprecision(6)
+          << fx << " " << fy << " "
+          << cx << " " << cy << " "
+          << k1 << " " << k2 << " " << k3 << " " << k4 << std::endl;
+          
+      fout_camera.close();
+    }
   }
   grid_num.resize(length);
   map_index.resize(length);
@@ -189,16 +234,175 @@ void VIOManager::resetGrid()
 
 void VIOManager::computeProjectionJacobian(V3D p, MD(2, 3) & J)
 {
-  const double x = p[0];
-  const double y = p[1];
-  const double z_inv = 1. / p[2];
-  const double z_inv_2 = z_inv * z_inv;
-  J(0, 0) = fx * z_inv;
-  J(0, 1) = 0.0;
-  J(0, 2) = -fx * x * z_inv_2;
-  J(1, 0) = 0.0;
-  J(1, 1) = fy * z_inv;
-  J(1, 2) = -fy * y * z_inv_2;
+  if(cam_model_type == "Pinhole") {
+    const double x = p[0];
+    const double y = p[1];
+    const double z_inv = 1. / p[2];
+    const double z_inv_2 = z_inv * z_inv;
+    J(0, 0) = fx * z_inv;
+    J(0, 1) = 0.0;
+    J(0, 2) = -fx * x * z_inv_2;
+    J(1, 0) = 0.0;
+    J(1, 1) = fy * z_inv;
+    J(1, 2) = -fy * y * z_inv_2;
+  } else if (cam_model_type == "EquidistantCamera") {
+    // 添加：计算等距投影雅可比矩阵
+    // double x = p[0];
+    // double y = p[1];
+    // double z = p[2];
+    // double r = sqrt(x * x + y * y);
+    // double r_inv = 1.0 / r;
+    // double R_2_inv = 1.0 / (x * x + y * y + z * z);
+    // double theta = atan(r/z);
+    // double f_theta = theta * (1.0 + k1 * theta * theta + k2 * theta * theta * theta * theta + k3 * theta * theta * theta * theta * theta * theta + k4 * theta * theta * theta * theta * theta * theta * theta);
+    // double f_theta_prime = 1.0 + 3.0 * k1 * theta * theta + 5.0 * k2 * theta * theta * theta * theta + 7.0 * k3 * theta * theta * theta * theta * theta * theta + 9.0 * k4 * theta * theta * theta * theta * theta * theta * theta;
+    // double cos_fai = x * r_inv;
+    // double sin_fai = y * r_inv;
+    // MD(2, 2) Jpc2theta_fai;
+    // Jpc2theta_fai(0, 0) = fx *f_theta_prime * cos_fai;
+    // Jpc2theta_fai(0, 1) = fx *f_theta * -sin_fai;
+    // Jpc2theta_fai(1, 0) = fy *f_theta_prime * sin_fai;
+    // Jpc2theta_fai(1, 1) = fy *f_theta * cos_fai;
+    // MD(2, 3) Jtheta_fai2pf;
+    // Jtheta_fai2pf(0, 0) = (x * z) * r_inv * R_2_inv;
+    // Jtheta_fai2pf(0, 1) = (y * z) * r_inv * R_2_inv;
+    // Jtheta_fai2pf(0, 2) = -r * R_2_inv;
+    // Jtheta_fai2pf(1, 0) = -y * r_inv * r_inv;
+    // Jtheta_fai2pf(1, 1) = x * r_inv * r_inv;
+    // Jtheta_fai2pf(1, 2) = 0.0;
+    // J = Jpc2theta_fai * Jtheta_fai2pf;
+
+
+    // AI优化后的计算过程
+    // 输入: p(x, y, z)
+    // 输出: J (2x3 矩阵，按行优先存储或直接赋值给 Eigen/Matrix 对象)
+
+    // double x = p[0];
+    // double y = p[1];
+    // double z = p[2];
+
+    // // 1. 基础变量预计算 (减少除法和重复乘法)
+    // double x2 = x * x;
+    // double y2 = y * y;
+    // double r2 = x2 + y2;
+    // double r = sqrt(r2);
+    // double r_inv = 1.0 / r;        // 只有一次除法
+    // double r2_inv = r_inv * r_inv; // 1/r^2
+
+    // double rho2 = r2 + z * z;      // x^2 + y^2 + z^2
+    // double rho2_inv = 1.0 / rho2;  // 只有一次除法
+
+    // // 2. 多项式计算优化 (Horner法则或缓存幂次)
+    // double theta = atan2(r, z);    // 这里的 z 不需要非零检查，atan2处理得很好
+    // double th2 = theta * theta;
+    // double th4 = th2 * th2;
+    // double th6 = th4 * th2;
+    // double th8 = th4 * th4;
+
+    // // f(theta)
+    // double term_poly = 1.0 + k1 * th2 + k2 * th4 + k3 * th6 + k4 * th8;
+    // double f_theta = theta * term_poly;
+
+    // // f'(theta)
+    // double f_theta_prime = 1.0 + 3.0 * k1 * th2 + 5.0 * k2 * th4 + 7.0 * k3 * th6 + 9.0 * k4 * th8;
+
+    // // 3. 准备链式法则的“积木”
+    // // 避免显式计算 sin/cos，直接利用几何关系
+    // // cos_phi = x/r, sin_phi = y/r
+    // double c_phi = x * r_inv; 
+    // double s_phi = y * r_inv;
+
+    // // 预先计算 u, v 对 theta 和 phi 的偏导系数
+    // // du/dtheta = fx * f' * cos_phi
+    // // du/dphi   = -fx * f * sin_phi
+    // double du_dtheta = fx * f_theta_prime * c_phi;
+    // double du_dphi   = -fx * f_theta * s_phi;
+
+    // // dv/dtheta = fy * f' * sin_phi
+    // // dv/dphi   = fy * f * cos_phi
+    // double dv_dtheta = fy * f_theta_prime * s_phi;
+    // double dv_dphi   = fy * f_theta * c_phi;
+
+    // // 4. 关键：计算 theta 和 phi 关于 (x,y,z) 的梯度
+    // // d_theta / d_vec = [xz/r*rho2, yz/r*rho2, -r/rho2]
+    // // 提取公因式 common_theta = z / (r * rho2)
+    // double common_theta = z * r_inv * rho2_inv; 
+    // double dtheta_dx = x * common_theta;
+    // double dtheta_dy = y * common_theta;
+    // double dtheta_dz = -r * rho2_inv;
+
+    // // d_phi / d_vec = [-y/r2, x/r2, 0]
+    // double dphi_dx = -y * r2_inv;
+    // double dphi_dy = x * r2_inv;
+    // // dphi_dz = 0; // 显式跳过计算
+
+    // // 5. 最终组装 (手动乘法，无矩阵开销)
+    // // Row 0: du/dx, du/dy, du/dz
+    // J(0, 0) = du_dtheta * dtheta_dx + du_dphi * dphi_dx;
+    // J(0, 1) = du_dtheta * dtheta_dy + du_dphi * dphi_dy;
+    // J(0, 2) = du_dtheta * dtheta_dz; // + du_dphi * 0
+
+    // // Row 1: dv/dx, dv/dy, dv/dz
+    // J(1, 0) = dv_dtheta * dtheta_dx + dv_dphi * dphi_dx;
+    // J(1, 1) = dv_dtheta * dtheta_dy + dv_dphi * dphi_dy;
+    // J(1, 2) = dv_dtheta * dtheta_dz; // + dv_dphi * 0
+
+
+    // AI进一步优化版本
+    double x = p[0];
+    double y = p[1];
+    double z = p[2];
+
+    double x2 = x * x;
+    double y2 = y * y;
+    double r2 = x2 + y2; // r^2
+
+    // 【分支优化】极小值保护（必须有，否则 0/0 崩溃）
+    if (r2 < 1e-8) {
+        // 当点位于光轴中心时，鱼眼模型退化为针孔模型
+        double z_inv = 1.0 / z;
+        J.setZero();
+        J(0, 0) = fx * z_inv;
+        J(1, 1) = fy * z_inv;
+        J(0, 2) = -fx * x * z_inv * z_inv; // 近似为0
+        J(1, 2) = -fy * y * z_inv * z_inv; // 近似为0
+        return; 
+    }
+
+    double r = std::sqrt(r2);
+    double r_inv = 1.0 / r;
+    double r2_inv = r_inv * r_inv; // 1/r^2
+
+    // 1. 计算 theta 和多项式 (最耗时的部分)
+    double theta = std::atan2(r, z);
+    double th2 = theta * theta;
+    double th4 = th2 * th2;
+    double th6 = th4 * th2;
+    double th8 = th4 * th4;
+
+    double f_theta = theta * (1.0 + k1 * th2 + k2 * th4 + k3 * th6 + k4 * th8);
+    double f_theta_prime = 1.0 + 3.0 * k1 * th2 + 5.0 * k2 * th4 + 7.0 * k3 * th6 + 9.0 * k4 * th8;
+
+    // 2. 计算三个核心中间变量
+    double rho2 = r2 + z * z; 
+    double term_A = f_theta_prime / rho2;        // 对应公式中的 A
+    double term_G = f_theta * r_inv;             // 对应公式中的 G (f/r)
+    double term_diff = (z * term_A - term_G) * r2_inv; // 对应 (zA - G)/r^2
+
+    // 3. 直接填充矩阵 (几乎全是乘法加法，无冗余)
+    // Row 0
+    J(0, 0) = fx * (term_G + x2 * term_diff);
+    J(0, 1) = fx * (x * y * term_diff);
+    J(0, 2) = -fx * x * term_A;
+
+    // Row 1
+    J(1, 0) = fy * (x * y * term_diff);     // 注意：这里可以复用 J(0,1) * (fy/fx)
+    J(1, 1) = fy * (term_G + y2 * term_diff);
+    J(1, 2) = -fy * y * term_A;
+
+  } else {
+    printf("Unsupported camera model: %s\n!!", cam_model_type.c_str());
+  }
 }
 
 void VIOManager::getImagePatch(cv::Mat img, V2D pc, float *patch_tmp, int level)
@@ -1769,7 +1973,12 @@ void VIOManager::dumpDataForColmap()
   std::string image_path = std::string(ROOT_DIR) + "Log/Colmap/images/" + cnt_str + ".png";
   
   cv::Mat img_rgb_undistort;
-  pinhole_cam->undistortImage(img_rgb, img_rgb_undistort);
+  // 添加：去畸变pinhole相机需要
+  if(cam_model_type == "Pinhole") {
+    pinhole_cam->undistortImage(img_rgb, img_rgb_undistort);
+  } else {
+    img_rgb_undistort = img_rgb.clone();
+  }
   cv::imwrite(image_path, img_rgb_undistort);
   
   Eigen::Quaterniond q(new_frame_->T_f_w_.rotationMatrix());

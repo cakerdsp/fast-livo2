@@ -22,6 +22,7 @@ which is included as part of this source code package.
 #include <vikit/robust_cost.h>
 #include <vikit/vision.h>
 #include <vikit/pinhole_camera.h>
+#include <vikit/equidistant_camera.h>
 
 struct SubSparseMap
 {
@@ -103,6 +104,8 @@ public:
   int width, height, grid_n_width, grid_n_height, length;
   double image_resize_factor;
   double fx, fy, cx, cy;
+  // 添加：等距投影参数
+  double k1, k2, k3, k4;
   int patch_pyrimid_level, patch_size, patch_size_total, patch_size_half, border, warp_len;
   int max_iterations, total_points;
 
@@ -170,6 +173,9 @@ public:
   double calculateNCC(float *ref_patch, float *cur_patch, int patch_size);
   int getBestSearchLevel(const Matrix2d &A_cur_ref, const int max_level);
   V3F getInterpolatedPixel(cv::Mat img, V2D pc);
+
+
+  std::string cam_model_type;
   
   // void resetRvizDisplay();
   // deque<VisualPoint *> map_cur_frame;
