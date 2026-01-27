@@ -113,6 +113,9 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   try_declare.template operator()<bool>("pcd_save.pcd_save_en", false);
   try_declare.template operator()<bool>("pcd_save.colmap_output_en", false);
   try_declare.template operator()<double>("pcd_save.filter_size_pcd", 0.5);
+  try_declare.template operator()<bool>("debug_log.mat_pre_en", false);
+  try_declare.template operator()<bool>("debug_log.mat_out_en", false);
+  try_declare.template operator()<bool>("debug_log.imu_log_en", false);
   try_declare.template operator()<vector<double>>("extrin_calib.extrinsic_T", vector<double>{});
   try_declare.template operator()<vector<double>>("extrin_calib.extrinsic_R", vector<double>{});
   try_declare.template operator()<vector<double>>("extrin_calib.Pcl", vector<double>{});
@@ -171,6 +174,9 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   this->node->get_parameter("pcd_save.pcd_save_en", pcd_save_en);
   this->node->get_parameter("pcd_save.colmap_output_en", colmap_output_en);
   this->node->get_parameter("pcd_save.filter_size_pcd", filter_size_pcd);
+  this->node->get_parameter("debug_log.mat_pre_en", mat_pre_en);
+  this->node->get_parameter("debug_log.mat_out_en", mat_out_en);
+  this->node->get_parameter("debug_log.imu_log_en", imu_log_en);
   this->node->get_parameter("extrin_calib.extrinsic_T", extrinT);
   this->node->get_parameter("extrin_calib.extrinsic_R", extrinR);
   this->node->get_parameter("extrin_calib.Pcl", cameraextrinT);
@@ -233,6 +239,7 @@ void LIVMapper::initializeComponents(rclcpp::Node::SharedPtr &node)
   p_imu->set_gyr_bias_cov(V3D(0.0001, 0.0001, 0.0001));
   p_imu->set_acc_bias_cov(V3D(0.0001, 0.0001, 0.0001));
   p_imu->set_imu_init_frame_num(imu_int_frame);
+  p_imu->set_imu_log_en(imu_log_en);
 
   if (!imu_en) p_imu->disable_imu();
   if (!gravity_est_en) p_imu->disable_gravity_est();
@@ -265,8 +272,8 @@ void LIVMapper::initializeFiles()
   if(colmap_output_en) fout_points.open(std::string(ROOT_DIR) + "Log/Colmap/sparse/0/points3D.txt", std::ios::out);
   if(pcd_save_en) fout_lidar_pos.open(std::string(ROOT_DIR) + "Log/pcd/lidar_poses.txt", std::ios::out);
   if(img_save_en) fout_visual_pos.open(std::string(ROOT_DIR) + "Log/image/image_poses.txt", std::ios::out);
-  fout_pre.open(DEBUG_FILE_DIR("mat_pre.txt"), std::ios::out);
-  fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), std::ios::out);
+  if(mat_pre_en) fout_pre.open(DEBUG_FILE_DIR("mat_pre.txt"), std::ios::out);
+  if(mat_out_en) fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), std::ios::out);
 }
 
 void LIVMapper::initializeSubscribersAndPublishers(rclcpp::Node::SharedPtr &node, image_transport::ImageTransport &it_)
@@ -364,9 +371,11 @@ void LIVMapper::stateEstimationAndMapping()
 void LIVMapper::handleVIO() 
 {
   euler_cur = RotMtoEuler(_state.rot_end);
-  fout_pre << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-            << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-            << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
+  if(mat_pre_en && fout_pre.is_open()) {
+    fout_pre << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
+              << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
+              << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
+  }
   // pcl_w_wait_pub是通过LIO更新的，保存了LIO更新的点云的世界坐标系
   if (pcl_w_wait_pub->empty() || (pcl_w_wait_pub == nullptr)) 
   {
@@ -414,17 +423,21 @@ void LIVMapper::handleVIO()
   publish_img_rgb(pubImage, vio_manager);
 
   euler_cur = RotMtoEuler(_state.rot_end);
-  fout_out << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-            << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-            << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << " " << feats_undistort->points.size() << std::endl;
+  if(mat_out_en && fout_out.is_open()) {
+    fout_out << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
+              << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
+              << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << " " << feats_undistort->points.size() << std::endl;
+  }
 }
 
 void LIVMapper::handleLIO() 
 {    
   euler_cur = RotMtoEuler(_state.rot_end);
-  fout_pre << setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-           << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-           << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << endl;
+  if(mat_pre_en && fout_pre.is_open()) {
+    fout_pre << setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
+             << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
+             << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << endl;
+  }
            
   if (feats_undistort->empty() || (feats_undistort == nullptr)) 
   {
@@ -576,9 +589,11 @@ void LIVMapper::handleLIO()
   printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
 
   euler_cur = RotMtoEuler(_state.rot_end);
-  fout_out << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-            << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-            << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << " " << feats_undistort->points.size() << std::endl;
+  if(mat_out_en && fout_out.is_open()) {
+    fout_out << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
+              << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
+              << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << " " << feats_undistort->points.size() << std::endl;
+  }
 }
 
 void LIVMapper::savePCD() 

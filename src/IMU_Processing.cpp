@@ -104,6 +104,8 @@ void ImuProcess::set_acc_bias_cov(const V3D &b_a) { cov_bias_acc = b_a; }
 
 void ImuProcess::set_imu_init_frame_num(const int &num) { MAX_INI_COUNT = num; }
 
+void ImuProcess::set_imu_log_en(const bool &en) { imu_log_en = en; }
+
 void ImuProcess::IMU_init(const MeasureGroup &meas, StatesGroup &state_inout, int &N)
 {
   /** 1. initializing the gravity, gyro bias, acc and gyro covariance
@@ -346,7 +348,9 @@ void ImuProcess::UndistortPcl(LidarMeasureGroup &lidar_meas, StatesGroup &state_
       // cout<<"acc_avr: "<<acc_avr.transpose()<<endl;
 
       // #ifdef DEBUG_PRINT
-      fout_imu << setw(10) << stamp2Sec(head->header.stamp) - first_lidar_time << " " << angvel_avr.transpose() << " " << acc_avr.transpose() << endl;
+      if(imu_log_en && fout_imu.is_open()) {
+        fout_imu << setw(10) << stamp2Sec(head->header.stamp) - first_lidar_time << " " << angvel_avr.transpose() << " " << acc_avr.transpose() << endl;
+      }
       // #endif
 
       // imu_time = stamp2Sec(head->header.stamp) - first_lidar_time;
@@ -579,7 +583,9 @@ void ImuProcess::Process2(LidarMeasureGroup &lidar_meas, StatesGroup &stat, Poin
       RCLCPP_INFO(rclcpp::get_logger(""), "IMU Initials: ba covarience: %.8f %.8f %.8f; bg covarience: "
                "%.8f %.8f %.8f",
                cov_bias_acc[0], cov_bias_acc[1], cov_bias_acc[2], cov_bias_gyr[0], cov_bias_gyr[1], cov_bias_gyr[2]);
-      fout_imu.open(DEBUG_FILE_DIR("imu.txt"), ios::out);
+      if(imu_log_en) {
+        fout_imu.open(DEBUG_FILE_DIR("imu.txt"), ios::out);
+      }
     }
 
     return;
