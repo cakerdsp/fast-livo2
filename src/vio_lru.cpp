@@ -453,13 +453,18 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
     // =========================================================
     if (iter->second->voxel_points.size() >= voxel_points_capacity) 
     {
-        // 重点：如果不加入地图，必须手动 delete，否则这本身就是内存泄漏！
-        delete pt_new; 
-        return; 
+        // 1. 找到最久没用的点（list 尾部）
+        VisualPoint* oldest_pt = iter->second->voxel_points.back();
+        
+        // 2. 物理删除
+        delete oldest_pt;
+        
+        // 3. 从逻辑列表移除
+        iter->second->voxel_points.pop_back();
+        iter->second->count--;
     }
-
-    // 如果没满，才加入
-    iter->second->voxel_points.push_back(pt_new);
+    // 4. 将新点插入头部（表示最新使用）
+    iter->second->voxel_points.push_front(pt_new);
     iter->second->count++;
     
     // LRU 更新热度：移到头部
@@ -486,7 +491,7 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
 
     VOXEL_POINTS *ot = new VOXEL_POINTS(0);
     ot->voxel_points.push_back(pt_new);
-
+    ot->count++;
     // 初始化 LRU 迭代器
     lru_list.push_front(position);
     ot->lru_iter = lru_list.begin();
@@ -695,18 +700,17 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
     {
       lru_list.splice(lru_list.begin(), lru_list, corre_voxel->second->lru_iter);
       bool voxel_in_fov = false;
-      std::vector<VisualPoint *> &voxel_points = corre_voxel->second->voxel_points;
-      int voxel_num = voxel_points.size();
+      auto &v_points = corre_voxel->second->voxel_points;
+    //   int voxel_num = voxel_points.size();
 
-      for (int i = 0; i < voxel_num; i++)
+      for (auto it = v_points.begin(); it != v_points.end(); )
       {
-        VisualPoint *pt = voxel_points[i];
-        if (pt == nullptr) continue;
-        if (pt->obs_.size() == 0) continue;
+        VisualPoint *pt = *it;
+        if (pt == nullptr || pt->obs_.size() == 0) {++it; continue;}
 
         V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
         V3D dir(new_frame_->T_f_w_ * pt->pos_);
-        if (dir[2] < 0) continue;
+        if (dir[2] < 0) {++it;continue;}
         // dir.normalize();
         // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80 degree 0.08 85 degree
 
@@ -715,6 +719,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
         {
           // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(0, 255, 255), -1, 8);
           voxel_in_fov = true;
+          v_points.splice(v_points.begin(), v_points, it++);
           int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
           grid_num[index] = TYPE_MAP;
           Vector3d obs_vec(new_frame_->pos() - pt->pos_);
@@ -724,6 +729,8 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
             map_dist[index] = cur_dist;
             retrieve_voxel_points[index] = pt;
           }
+        } else {
+            ++it;
         }
       }
       if (!voxel_in_fov) { DeleteKeyList.push_back(position); }
@@ -731,111 +738,95 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
   }
 
   // RayCasting Module
-  if (raycast_en)
+  // RayCasting Module (约 vio.cpp 第 550 行)
+if (raycast_en)
+{
+  for (int i = 0; i < length; i++)
   {
-    for (int i = 0; i < length; i++)
+    if (grid_num[i] == TYPE_MAP || border_flag[i] == 1) continue;
+
+    for (const auto &it_sample : rays_with_sample_points[i])
     {
-      if (grid_num[i] == TYPE_MAP || border_flag[i] == 1) continue;
+      V3D sample_point_w = new_frame_->f2w(it_sample);
 
-      // int row = static_cast<int>(i / grid_n_width) * grid_size + grid_size /
-      // 2; int col = (i - static_cast<int>(i / grid_n_width) * grid_n_width) *
-      // grid_size + grid_size / 2;
-
-      // cv::circle(img_cp, cv::Point2f(col, row), 3, cv::Scalar(255, 255, 0),
-      // -1, 8);
-
-      // vector<V3D> sample_points_temp;
-      // bool add_sample = false;
-
-      for (const auto &it : rays_with_sample_points[i])
+      for (int j = 0; j < 3; j++)
       {
-        V3D sample_point_w = new_frame_->f2w(it);
-        // sample_points_temp.push_back(sample_point_w);
+        loc_xyz[j] = floor(sample_point_w[j] / voxel_size);
+        if (loc_xyz[j] < 0) { loc_xyz[j] -= 1.0; }
+      }
 
-        for (int j = 0; j < 3; j++)
+      VOXEL_LOCATION sample_pos(loc_xyz[0], loc_xyz[1], loc_xyz[2]);
+
+      auto corre_sub_feat_map = sub_feat_map.find(sample_pos);
+      if (corre_sub_feat_map != sub_feat_map.end()) break;
+
+      auto corre_feat_map = feat_map.find(sample_pos);
+      if (corre_feat_map != feat_map.end())
+      {
+        bool voxel_in_fov = false;
+        // 获取该体素的点链表引用
+        auto &v_points = corre_feat_map->second->voxel_points;
+
+        // 【核心修改】：使用迭代器遍历 list 
+        for (auto it_pt = v_points.begin(); it_pt != v_points.end(); )
         {
-          loc_xyz[j] = floor(sample_point_w[j] / voxel_size);
-          if (loc_xyz[j] < 0) { loc_xyz[j] -= 1.0; }
-        }
+          VisualPoint *pt = *it_pt;
 
-        VOXEL_LOCATION sample_pos(loc_xyz[0], loc_xyz[1], loc_xyz[2]);
+          if (pt == nullptr || pt->obs_.size() == 0) { ++it_pt; continue; }
 
-        auto corre_sub_feat_map = sub_feat_map.find(sample_pos);
-        if (corre_sub_feat_map != sub_feat_map.end()) break;
+          V3D dir(new_frame_->T_f_w_ * pt->pos_);
+          if (dir[2] < 0) { ++it_pt; continue; } // 防止死循环
 
-        auto corre_feat_map = feat_map.find(sample_pos);
-        if (corre_feat_map != feat_map.end())
-        {
-          bool voxel_in_fov = false;
+          V2D pc(new_frame_->w2c(pt->pos_));
 
-          std::vector<VisualPoint *> &voxel_points = corre_feat_map->second->voxel_points;
-          int voxel_num = voxel_points.size();
-          if (voxel_num == 0) continue;
-
-          for (int j = 0; j < voxel_num; j++)
+          if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
           {
-            VisualPoint *pt = voxel_points[j];
+            voxel_in_fov = true;
+            
+            // 【新增 LRU 逻辑】：命中点移到 list 头部
+            v_points.splice(v_points.begin(), v_points, it_pt++);
 
-            if (pt == nullptr) continue;
-            if (pt->obs_.size() == 0) continue;
+            int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
+            grid_num[index] = TYPE_MAP;
+            Vector3d obs_vec(new_frame_->pos() - pt->pos_);
 
-            // sub_map_ray.push_back(pt); // cloud_visual_sub_map
-            // add_sample = true;
-
-            V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
-            V3D dir(new_frame_->T_f_w_ * pt->pos_);
-            if (dir[2] < 0) continue;
-            dir.normalize();
-            // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree 0.17 80 degree 0.08 85 degree
-
-            V2D pc(new_frame_->w2c(pt->pos_));
-
-            if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
+            float cur_dist = obs_vec.norm();
+            if (cur_dist <= map_dist[index])
             {
-              // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
-              // sub_map_ray_fov.push_back(pt);
-
-              voxel_in_fov = true;
-              int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
-              grid_num[index] = TYPE_MAP;
-              Vector3d obs_vec(new_frame_->pos() - pt->pos_);
-
-              float cur_dist = obs_vec.norm();
-
-              if (cur_dist <= map_dist[index])
-              {
-                map_dist[index] = cur_dist;
-                retrieve_voxel_points[index] = pt;
-              }
+              map_dist[index] = cur_dist;
+              retrieve_voxel_points[index] = pt;
             }
           }
-
-          if (voxel_in_fov) sub_feat_map[sample_pos] = 0;
-          break;
-        }
-        else
-        {
-          VOXEL_LOCATION sample_pos(loc_xyz[0], loc_xyz[1], loc_xyz[2]);
-          auto iter = plane_map.find(sample_pos);
-          if (iter != plane_map.end())
+          else
           {
-            VoxelOctoTree *current_octo;
-            current_octo = iter->second->find_correspond(sample_point_w);
-            if (current_octo->plane_ptr_->is_plane_)
-            {
-              pointWithVar plane_center;
-              VoxelPlane &plane = *current_octo->plane_ptr_;
-              plane_center.point_w = plane.center_;
-              plane_center.normal = plane.normal_;
-              visual_submap->add_from_voxel_map.push_back(plane_center);
-              break;
-            }
+            ++it_pt;
+          }
+        }
+
+        if (voxel_in_fov) sub_feat_map[sample_pos] = 0;
+        break;
+      }
+      else
+      {
+        // PlaneMap 逻辑保持不变...
+        auto iter = plane_map.find(sample_pos);
+        if (iter != plane_map.end())
+        {
+          VoxelOctoTree *current_octo = iter->second->find_correspond(sample_point_w);
+          if (current_octo->plane_ptr_->is_plane_)
+          {
+            pointWithVar plane_center;
+            VoxelPlane &plane = *current_octo->plane_ptr_;
+            plane_center.point_w = plane.center_;
+            plane_center.normal = plane.normal_;
+            visual_submap->add_from_voxel_map.push_back(plane_center);
+            break;
           }
         }
       }
-      // if(add_sample) sample_points.push_back(sample_points_temp);
     }
   }
+}
 
   for (auto &key : DeleteKeyList)
   {

@@ -75,6 +75,7 @@ void VIOManager::initializeVIO()
   height = cam->height();
 
   printf("width: %d, height: %d, scale: %f\n", width, height, image_resize_factor);
+  printf("[DEBUG] grid_size: %d\n", grid_size);
   Rci = Rcl * Rli;
   Pci = Rcl * Pli + Pcl;
 
@@ -84,7 +85,7 @@ void VIOManager::initializeVIO()
   Pic = -Rci.transpose() * Pci;
   tmp << SKEW_SYM_MATRX(Pic);
   Jdp_dR = -Rci * tmp;
-
+  // grid_size = 200;
   if (grid_size > 10)
   {
     grid_n_width = ceil(static_cast<double>(width / grid_size));
@@ -97,7 +98,7 @@ void VIOManager::initializeVIO()
     grid_n_width = ceil(static_cast<double>(width / grid_size));
   }
   length = grid_n_width * grid_n_height;
-
+  printf("grid_size: %d, grid_n_height: %d, grid_n_width: %d, length: %d\n", grid_size, grid_n_height, grid_n_width, length);
   if(raycast_en)
   {
     // cv::Mat img_test = cv::Mat::zeros(height, width, CV_8UC1);
@@ -446,24 +447,60 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
   auto iter = feat_map.find(position);
   if (iter != feat_map.end())
   {
-    // =========================================================
-    // 【核心修复】：密度控制 (防止单个格子无限膨胀)
-    // 设定一个上限，比如每个格子最多存 5~10 个点
-    // 稀疏地图不需要太多重叠点，多了全是冗余和内存消耗
-    // =========================================================
-    if (iter->second->voxel_points.size() >= voxel_points_capacity) 
+    VOXEL_POINTS* voxel = iter->second;
+    bool added_to_existing_surface = false;
+    for (auto& surf : voxel->surfaces)
     {
-        // 重点：如果不加入地图，必须手动 delete，否则这本身就是内存泄漏！
-        delete pt_new; 
-        return; 
+        if (surf->belongsTo(pt_new->normal_))
+        {
+            // 2. 满员检查 (假设上限 4)
+            if (surf->voxel_points.size() < voxel_surface_capacity) {
+                surf->addVoxelPoint(pt_new); // 【关键调用】使用新接口
+                voxel->count++;
+            } 
+            else {
+                // 这里不对，暂时只增不减。
+                // if(surf->is_converged_) {delete pt_new; return;}
+                // // 3. 优胜劣汰（这个逻辑不对，需要仔细琢磨）
+                // int worst_idx = -1;
+                // int min_obs = 999999;
+                // for(int i=0; i<surf->voxel_points.size(); i++) {
+                //     VisualPoint* vp = surf->voxel_points[i];
+                //     if(vp->is_converged_) continue; 
+                //     if(vp->obs_.size() < min_obs) {
+                //         min_obs = vp->obs_.size();
+                //         worst_idx = i;
+                //     }
+                // }
+
+                // if(worst_idx != -1) {
+                //     surf->deletePoint(worst_idx);
+                //     surf->addVoxelPoint(pt_new);
+                // } else {
+                //     surf->is_converged_ = true;
+                //     delete pt_new; 
+                // }
+                delete pt_new;
+                return;
+            }
+            added_to_existing_surface = true;
+            break; 
+        }
     }
 
-    // 如果没满，才加入
-    iter->second->voxel_points.push_back(pt_new);
-    iter->second->count++;
-    
-    // LRU 更新热度：移到头部
-    lru_list.splice(lru_list.begin(), lru_list, iter->second->lru_iter);
+    // --- B. 如果是全新的面 ---
+    if (!added_to_existing_surface)
+    {
+        if (voxel->surfaces.size() < surface_count) {
+            Surface* new_surf = new Surface(pt_new);
+            voxel->surfaces.push_back(new_surf);
+            voxel->count++;
+        } else {
+            delete pt_new; 
+        }
+    }
+
+    lru_list.splice(lru_list.begin(), lru_list, voxel->lru_iter);
   }
   else
   {
@@ -485,7 +522,8 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
     }
 
     VOXEL_POINTS *ot = new VOXEL_POINTS(0);
-    ot->voxel_points.push_back(pt_new);
+    ot->surfaces.push_back(new Surface(pt_new));
+    ot->count++;
 
     // 初始化 LRU 迭代器
     lru_list.push_front(position);
@@ -695,34 +733,37 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
     {
       lru_list.splice(lru_list.begin(), lru_list, corre_voxel->second->lru_iter);
       bool voxel_in_fov = false;
-      std::vector<VisualPoint *> &voxel_points = corre_voxel->second->voxel_points;
-      int voxel_num = voxel_points.size();
+      // std::vector<VisualPoint *> &voxel_points = corre_voxel->second->voxel_points;
+      // int voxel_num = voxel_points.size();
 
-      for (int i = 0; i < voxel_num; i++)
+      for (auto& surf : corre_voxel->second->surfaces)
       {
-        VisualPoint *pt = voxel_points[i];
-        if (pt == nullptr) continue;
-        if (pt->obs_.size() == 0) continue;
-
-        V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
-        V3D dir(new_frame_->T_f_w_ * pt->pos_);
-        if (dir[2] < 0) continue;
-        // dir.normalize();
-        // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80 degree 0.08 85 degree
-
-        V2D pc(new_frame_->w2c(pt->pos_));
-        if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
+        for (auto pt : surf->voxel_points)
         {
-          // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(0, 255, 255), -1, 8);
-          voxel_in_fov = true;
-          int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
-          grid_num[index] = TYPE_MAP;
-          Vector3d obs_vec(new_frame_->pos() - pt->pos_);
-          float cur_dist = obs_vec.norm();
-          if (cur_dist <= map_dist[index])
+          // VisualPoint *pt = voxel_points[i];
+          if (pt == nullptr) continue;
+          if (pt->obs_.size() == 0) continue;
+
+          V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
+          V3D dir(new_frame_->T_f_w_ * pt->pos_);
+          if (dir[2] < 0) continue;
+          // dir.normalize();
+          // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80 degree 0.08 85 degree
+
+          V2D pc(new_frame_->w2c(pt->pos_));
+          if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
           {
-            map_dist[index] = cur_dist;
-            retrieve_voxel_points[index] = pt;
+            // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(0, 255, 255), -1, 8);
+            voxel_in_fov = true;
+            int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
+            grid_num[index] = TYPE_MAP;
+            Vector3d obs_vec(new_frame_->pos() - pt->pos_);
+            float cur_dist = obs_vec.norm();
+            if (cur_dist <= map_dist[index])
+            {
+              map_dist[index] = cur_dist;
+              retrieve_voxel_points[index] = pt;
+            }
           }
         }
       }
@@ -768,44 +809,47 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
         {
           bool voxel_in_fov = false;
 
-          std::vector<VisualPoint *> &voxel_points = corre_feat_map->second->voxel_points;
-          int voxel_num = voxel_points.size();
-          if (voxel_num == 0) continue;
+          // std::vector<VisualPoint *> &voxel_points = corre_feat_map->second->voxel_points;
+          // int voxel_num = voxel_points.size();
+          // if (voxel_num == 0) continue;
 
-          for (int j = 0; j < voxel_num; j++)
+          for (auto& surf : corre_feat_map->second->surfaces)
           {
-            VisualPoint *pt = voxel_points[j];
-
-            if (pt == nullptr) continue;
-            if (pt->obs_.size() == 0) continue;
-
-            // sub_map_ray.push_back(pt); // cloud_visual_sub_map
-            // add_sample = true;
-
-            V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
-            V3D dir(new_frame_->T_f_w_ * pt->pos_);
-            if (dir[2] < 0) continue;
-            dir.normalize();
-            // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree 0.17 80 degree 0.08 85 degree
-
-            V2D pc(new_frame_->w2c(pt->pos_));
-
-            if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
+            for (auto pt : surf->voxel_points)
             {
-              // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
-              // sub_map_ray_fov.push_back(pt);
+              // VisualPoint *pt = voxel_points[j];
 
-              voxel_in_fov = true;
-              int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
-              grid_num[index] = TYPE_MAP;
-              Vector3d obs_vec(new_frame_->pos() - pt->pos_);
+              if (pt == nullptr) continue;
+              if (pt->obs_.size() == 0) continue;
 
-              float cur_dist = obs_vec.norm();
+              // sub_map_ray.push_back(pt); // cloud_visual_sub_map
+              // add_sample = true;
 
-              if (cur_dist <= map_dist[index])
+              V3D norm_vec(new_frame_->T_f_w_.rotationMatrix() * pt->normal_);
+              V3D dir(new_frame_->T_f_w_ * pt->pos_);
+              if (dir[2] < 0) continue;
+              dir.normalize();
+              // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree 0.17 80 degree 0.08 85 degree
+
+              V2D pc(new_frame_->w2c(pt->pos_));
+
+              if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
               {
-                map_dist[index] = cur_dist;
-                retrieve_voxel_points[index] = pt;
+                // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
+                // sub_map_ray_fov.push_back(pt);
+
+                voxel_in_fov = true;
+                int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
+                grid_num[index] = TYPE_MAP;
+                Vector3d obs_vec(new_frame_->pos() - pt->pos_);
+
+                float cur_dist = obs_vec.norm();
+
+                if (cur_dist <= map_dist[index])
+                {
+                  map_dist[index] = cur_dist;
+                  retrieve_voxel_points[index] = pt;
+                }
               }
             }
           }
@@ -1053,6 +1097,7 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
   if (pg.size() <= 10) return;
 
   // double t0 = omp_get_wtime();
+  int add_from_pg = 0;  // 统计来自pg途径的点数
   for (int i = 0; i < pg.size(); i++)
   {
     if (pg[i].normal == V3D(0, 0, 0)) continue;
@@ -1073,11 +1118,13 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
           scan_value[index] = cur_value;
           append_voxel_points[index] = pg[i];
           grid_num[index] = TYPE_POINTCLOUD;
+          add_from_pg++;
         }
       }
     }
   }
 
+  int add_from_voxel_map = 0;  // 统计来自add_from_voxel_map途径的点数
   for (int j = 0; j < visual_submap->add_from_voxel_map.size(); j++)
   {
     V3D pt = visual_submap->add_from_voxel_map[j].point_w;
@@ -1095,6 +1142,7 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
           scan_value[index] = cur_value;
           append_voxel_points[index] = visual_submap->add_from_voxel_map[j];
           grid_num[index] = TYPE_POINTCLOUD;
+          add_from_voxel_map++;
         }
       }
     }
@@ -1147,6 +1195,8 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
   // double t_b2 = omp_get_wtime() - t0;
 
   printf("[ VIO ] Append %d new visual map points\n", add);
+  printf("[ VIO ]   - From pg (point cloud): %d points\n", add_from_pg);
+  printf("[ VIO ]   - From add_from_voxel_map: %d points\n", add_from_voxel_map);
   // printf("pg.size: %d \n", pg.size());
   // printf("B1. : %.6lf \n", t_b1);
   // printf("B2. : %.6lf \n", t_b2);
@@ -2103,7 +2153,11 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
   // 计算类成员feat_map中平均每个体素的点数（在打印时顺便计算，避免额外开销）
   size_t total_points_in_feat_map = 0;
   for (const auto &pair : this->feat_map) {
-    total_points_in_feat_map += pair.second->voxel_points.size();
+    // 直接读取我们在 VOXEL_POINTS 里维护的 count 变量,这里是面数了
+    total_points_in_feat_map += pair.second->count; 
+    
+    // 或者如果你不信任 count，也可以双重循环遍历统计：
+    // for(auto s : pair.second->surfaces) total_points_in_feat_map += s->voxel_points.size();
   }
   double avg_points_per_voxel = this->feat_map.size() > 0 ? (double)total_points_in_feat_map / this->feat_map.size() : 0.0;
   

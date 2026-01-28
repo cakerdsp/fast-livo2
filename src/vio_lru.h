@@ -70,7 +70,7 @@ public:
 class VOXEL_POINTS
 {
 public:
-  std::vector<VisualPoint *> voxel_points;
+  std::list<VisualPoint *> voxel_points;
   // 【新增】记录自己在 LRU 链表中的位置，方便快速移动
   std::list<VOXEL_LOCATION>::iterator lru_iter;
   int count;

@@ -58,6 +58,8 @@ struct SubSparseMap
   }
 };
 
+
+
 class Warp
 {
 public:
@@ -67,20 +69,96 @@ public:
   ~Warp() {}
 };
 
-class VOXEL_POINTS
-{
-public:
+
+
+class Surface {
+  public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  Eigen::Vector3d normal_;
+  bool is_converged_;
   std::vector<VisualPoint *> voxel_points;
-  // 【新增】记录自己在 LRU 链表中的位置，方便快速移动
-  std::list<VOXEL_LOCATION>::iterator lru_iter;
-  int count;
-  VOXEL_POINTS(int num) : count(num) {}
-  ~VOXEL_POINTS() 
-  { 
+  Surface(VisualPoint* init_pt) {
+    normal_ = init_pt->normal_;
+    voxel_points.push_back(init_pt);
+    is_converged_ = false;
+  }
+  ~Surface() {
     for (VisualPoint* vp : voxel_points) 
     {
       if (vp != nullptr) { delete vp; vp = nullptr; }
     }
+    voxel_points.clear();
+  }
+  bool belongsTo(const Eigen::Vector3d& new_normal) {
+    // 夹角小于约 30 度 (cos > 0.85)
+    return normal_.dot(new_normal) > 0.85; 
+  }
+  void updateNormal(const Eigen::Vector3d& new_normal) {
+    // 1. 获取当前点数 (权重)
+    double n = (double)voxel_points.size();
+
+    // 2. 加权更新法向量 (滑动平均)
+    // 旧法向量 * 旧权重 + 新法向量
+    Eigen::Vector3d accumulated_normal = normal_ * n + new_normal;
+    
+    // 3. 归一化，确保模长为 1
+    normal_ = accumulated_normal.normalized();
+  }
+  void addVoxelPoint(VisualPoint* vp) {
+    updateNormal(vp->normal_);
+    voxel_points.push_back(vp);
+  }
+  void deletePoint(int i) {
+    if (i < 0 || i >= voxel_points.size()) return;
+
+    VisualPoint* vp_to_delete = voxel_points[i]; // 暂存要删的指针
+
+    // 1. 将 vector 最后一个元素覆盖到位置 i
+    voxel_points[i] = voxel_points.back();
+    
+    // --- 1. 反向更新法向量 ---
+    double n = (double)voxel_points.size();
+    
+    if (n > 1) {
+        // 恢复成未归一化的总向量 (近似值)
+        Eigen::Vector3d sum_normal = normal_ * n; 
+        
+        // 减去要删除那个点的法向量
+        sum_normal -= vp_to_delete->normal_;
+        
+        // 重新归一化
+        normal_ = sum_normal.normalized();
+    } else {
+        // 如果只剩这一个点，删完就没有法向量了
+        // 可以设为零向量，或者保留原值，取决于你的业务逻辑
+        normal_ = Eigen::Vector3d::Zero(); 
+    }
+
+    // 2. 移除 vector 最后一个元素 (O(1) 操作)
+    voxel_points.pop_back();
+
+    // 3. 释放内存
+    if (vp_to_delete != nullptr) {
+        delete vp_to_delete;
+    }
+  }
+  // 如果到达上限,并且所有点收敛，那么这个面收敛。
+};
+
+class VOXEL_POINTS
+{
+public:
+  std::vector<Surface *> surfaces;
+  std::list<VOXEL_LOCATION>::iterator lru_iter;
+  int count;
+  VOXEL_POINTS(int num) : count(num) {}
+  ~VOXEL_POINTS() 
+  {
+    for (Surface* s : surfaces) 
+    {
+      if (s != nullptr) { delete s; s = nullptr; }
+    }
+    surfaces.clear();
   }
 };
 
@@ -142,7 +220,8 @@ public:
   std::list<VOXEL_LOCATION> lru_list;
   // 【新增】缓存大小上限 (比如 50000 个体素)
   int lru_capacity = 1250;
-  int voxel_points_capacity = 15;
+  int voxel_surface_capacity = 15;
+  int surface_count = 3;
   
   enum CellType
   {

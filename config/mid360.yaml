@@ -4,7 +4,7 @@
       img_topic: "/left_camera/image_raw"  
       lid_topic: "/livox/lidar"  
       imu_topic: "/livox/imu"  
-      img_en: 0  
+      img_en: 1  
       lidar_en: 1 
       ros_driver_bug_fix: false  
 
