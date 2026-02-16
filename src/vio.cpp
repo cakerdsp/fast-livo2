@@ -451,12 +451,12 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
     // 设定一个上限，比如每个格子最多存 5~10 个点
     // 稀疏地图不需要太多重叠点，多了全是冗余和内存消耗
     // =========================================================
-    if (iter->second->voxel_points.size() >= voxel_points_capacity) 
-    {
-        // 重点：如果不加入地图，必须手动 delete，否则这本身就是内存泄漏！
-        delete pt_new; 
-        return; 
-    }
+    // if (iter->second->voxel_points.size() >= voxel_points_capacity) 
+    // {
+    //     // 重点：如果不加入地图，必须手动 delete，否则这本身就是内存泄漏！
+    //     delete pt_new; 
+    //     return; 
+    // }
 
     // 如果没满，才加入
     iter->second->voxel_points.push_back(pt_new);

@@ -490,7 +490,7 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
     }
 
     VOXEL_POINTS *ot = new VOXEL_POINTS(0);
-    ot->voxel_points.push_back(pt_new);
+    ot->voxel_points.push_front(pt_new);
     ot->count++;
     // 初始化 LRU 迭代器
     lru_list.push_front(position);

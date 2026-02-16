@@ -142,7 +142,7 @@ public:
   std::list<VOXEL_LOCATION> lru_list;
   // 【新增】缓存大小上限 (比如 50000 个体素)
   int lru_capacity = 1250;
-  int voxel_points_capacity = 15;
+  int voxel_points_capacity = 25;
   
   enum CellType
   {

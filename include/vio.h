@@ -141,7 +141,7 @@ public:
   // 【新增】LRU 辅助链表，只存 Key (VOXEL_LOCATION)
   std::list<VOXEL_LOCATION> lru_list;
   // 【新增】缓存大小上限 (比如 50000 个体素)
-  int lru_capacity = 1250;
+  int lru_capacity = 50000;
   int voxel_points_capacity = 15;
   
   enum CellType
