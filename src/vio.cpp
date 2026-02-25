@@ -47,6 +47,8 @@ void VIOManager::initializeVIO()
     cam_model_type = "Pinhole";
   } else if (dynamic_cast<vk::EquidistantCamera*>(cam)) {
       cam_model_type = "EquidistantCamera";
+  } else if (dynamic_cast<vk::MEICamera*>(cam)) {
+    cam_model_type = "MEICamera";
   } else {
     printf("Unsupported camera model: %s\n!!", cam_model_type.c_str());
   }
@@ -73,6 +75,19 @@ void VIOManager::initializeVIO()
 
   width = cam->width();
   height = cam->height();
+
+  printf("\033start pixel2tg initalize!!\033\n");
+  pixel2xyz_map.resize(width * height);
+  int step = 1;
+  for (int i=0;i<width;i+=step) {
+    for (int j=0;j<height;j+=step) {
+      Eigen::Vector3d pos = cam->cam2world(i,j);
+      pos.normalize();
+      pixel2xyz_map[i + j * width] = pos;
+    }
+  }
+
+  printf("\033initalize pixel2tg done!!\033\n");
 
   printf("width: %d, height: %d, scale: %f\n", width, height, image_resize_factor);
   Rci = Rcl * Rli;
@@ -186,6 +201,8 @@ void VIOManager::initializeVIO()
           << k1 << " " << k2 << " " << k3 << " " << k4 << std::endl;
           
       fout_camera.close();
+    } else if (cam_model_type == "MEICamera") {
+      // TODO: 添加MEI相机的colmap输出
     }
   }
   grid_num.resize(length);
@@ -401,8 +418,11 @@ void VIOManager::computeProjectionJacobian(V3D p, MD(2, 3) & J)
     J(1, 1) = fy * (term_G + y2 * term_diff);
     J(1, 2) = -fy * y * term_A;
 
+  } else if (cam_model_type == "MEICamera") {
+    // TODO: 添加MEI相机的投影雅可比矩阵
   } else {
     printf("Unsupported camera model: %s\n!!", cam_model_type.c_str());
+    return;
   }
 }
 
@@ -2006,6 +2026,58 @@ V3F VIOManager::getInterpolatedPixel(cv::Mat img, V2D pc)
   return pixel;
 }
 
+V3F VIOManager::getInterpolatedPixelFromSphere(cv::Mat img, V2D pc, V3D pf)
+{
+  // 1. 快速检查边界（优先排除无效点）
+  const int u0 = static_cast<int>(pc[0]); // floorf 对于正数等价于强制类型转换，后者更快
+  const int v0 = static_cast<int>(pc[1]);
+  if (u0 < 0 || v0 < 0 || u0 >= width - 1 || v0 >= height - 1) return V3F(-1, -1, -1);
+
+  // 2. 向量归一化优化：避免使用 normalized()，手动计算一次 sqrt
+  float norm_inv = 1.0f / std::sqrt(pf[0]*pf[0] + pf[1]*pf[1] + pf[2]*pf[2]);
+  float px = pf[0] * norm_inv;
+  float py = pf[1] * norm_inv;
+  float pz = pf[2] * norm_inv;
+
+  // 3. 内存索引预计算
+  const int base_idx = v0 * width + u0;
+  const V3D& s00 = pixel2xyz_map[base_idx];
+  const V3D& s10 = pixel2xyz_map[base_idx + 1];
+  const V3D& s01 = pixel2xyz_map[base_idx + width];
+  const V3D& s11 = pixel2xyz_map[base_idx + width + 1]; 
+
+  // 4. 计算点积（手动展开 Eigen dot 操作，减少内联开销）
+  auto calc_weight = [&](const V3D& s) {
+      float dot = px * s[0] + py * s[1] + pz * s[2];
+      float diff = 1.000001f - dot; // 将 eps 直接合入减法，减少指令
+      return 1.0f / (diff * diff);  // 用乘法代替 std::pow(..., 2)
+  };
+
+  float w00 = calc_weight(s00);
+  float w10 = calc_weight(s10);
+  float w01 = calc_weight(s01);
+  float w11 = calc_weight(s11);
+
+  // 5. 将 4 次除法转换为 1 次除法（关键性能点）
+  float sum_w_inv = 1.0f / (w00 + w10 + w01 + w11);
+  w00 *= sum_w_inv;
+  w10 *= sum_w_inv;
+  w01 *= sum_w_inv;
+  w11 *= sum_w_inv;
+
+  // 6. 内存寻址优化：使用 img.step 处理可能存在的内存对齐（Padding）
+  const size_t step = img.step; 
+  const uint8_t* ptr0 = img.data + v0 * step + u0 * 3;
+  const uint8_t* ptr1 = ptr0 + step;
+
+  // 7. 最终颜色合成
+  return V3F(
+    w00 * ptr0[0] + w10 * ptr0[3] + w01 * ptr1[0] + w11 * ptr1[3],
+    w00 * ptr0[1] + w10 * ptr0[4] + w01 * ptr1[1] + w11 * ptr1[4],
+    w00 * ptr0[2] + w10 * ptr0[5] + w01 * ptr1[2] + w11 * ptr1[5]
+  );
+}
+
 void VIOManager::dumpDataForColmap()
 {
   static int cnt = 1;
@@ -2033,6 +2105,24 @@ void VIOManager::dumpDataForColmap()
             << cnt_str << ".png" << std::endl;
   fout_colmap << "0.0 0.0 -1" << std::endl;
   cnt++;
+}
+
+void VIOManager::processFrameJustForPointRender(cv::Mat &img, StatesGroup state) {
+  if (width != img.cols || height != img.rows)
+  {
+    if (img.empty()) printf("[ VIO ] Empty Image!\n");
+    cv::resize(img, img, cv::Size(img.cols * image_resize_factor, img.rows * image_resize_factor), 0, 0, CV_INTER_LINEAR);
+  }
+  img_rgb = img.clone();
+  img_cp = img.clone();
+  // img_test = img.clone();
+
+  if (img.channels() == 3) cv::cvtColor(img, img, CV_BGR2GRAY);
+  new_frame_.reset(new Frame(cam, img));
+  updateFrameState(state);
+  printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
+  printf("\033[1;34m|                         VIO Time                            |\033[0m\n");
+  printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
 }
 
 void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map, double img_time)

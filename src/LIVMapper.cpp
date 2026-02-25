@@ -72,6 +72,7 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   try_declare.template operator()<std::string>("common.imu_topic", "/livox/imu");
   try_declare.template operator()<bool>("common.ros_driver_bug_fix", false);
   try_declare.template operator()<int>("common.img_en", 1);
+  try_declare.template operator()<int>("common.only_render", 0);
   try_declare.template operator()<int>("common.lidar_en", 1);
   try_declare.template operator()<std::string>("common.img_topic", "/left_camera/image");
 
@@ -113,6 +114,7 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   try_declare.template operator()<bool>("pcd_save.pcd_save_en", false);
   try_declare.template operator()<bool>("pcd_save.colmap_output_en", false);
   try_declare.template operator()<double>("pcd_save.filter_size_pcd", 0.5);
+  try_declare.template operator()<int>("pcd_save.type", 0);
   try_declare.template operator()<bool>("debug_log.mat_pre_en", false);
   try_declare.template operator()<bool>("debug_log.mat_out_en", false);
   try_declare.template operator()<bool>("debug_log.imu_log_en", false);
@@ -134,6 +136,7 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   this->node->get_parameter("common.ros_driver_bug_fix", ros_driver_fix_en);
   this->node->get_parameter("common.img_en", img_en);
   this->node->get_parameter("common.lidar_en", lidar_en);
+  this->node->get_parameter("common.only_render", only_render);
   this->node->get_parameter("common.img_topic", img_topic);
 
   this->node->get_parameter("vio.normal_en", normal_en);
@@ -174,6 +177,7 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   this->node->get_parameter("pcd_save.pcd_save_en", pcd_save_en);
   this->node->get_parameter("pcd_save.colmap_output_en", colmap_output_en);
   this->node->get_parameter("pcd_save.filter_size_pcd", filter_size_pcd);
+  this->node->get_parameter("pcd_save.type", pcd_save_type);
   this->node->get_parameter("debug_log.mat_pre_en", mat_pre_en);
   this->node->get_parameter("debug_log.mat_out_en", mat_out_en);
   this->node->get_parameter("debug_log.imu_log_en", imu_log_en);
@@ -397,8 +401,16 @@ void LIVMapper::handleVIO()
   // voxelmap_manager->voxel_map_就是那个哈希表
   // 因为雷达是单独存的，而IMU和IMAGE是共享的MeasureGroup结构体，所以这个LidarMeasures.measures.back()就是那个图像，因为里面目前的结构是[IMU，Image]
   // 之前在sync_packages里面已经知道，last_lio_update_time就是相机时间戳，所以这里相当于算的是相对于第一帧雷达的时间（_first_lidar_time应该算是时间起点了）
-  vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
 
+  if (only_render == 0)
+  { 
+  vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
+  }
+  else
+  {
+    vio_manager->processFrameJustForPointRender(LidarMeasures.measures.back().img, _state);
+  }
+  
   if (imu_prop_enable) 
   {
     ekf_finish_once = true;
@@ -598,6 +610,11 @@ void LIVMapper::handleLIO()
 
 void LIVMapper::savePCD() 
 {
+  std::cout << "[PCD Save] savePCD() called. pcd_save_en: " << pcd_save_en 
+            << ", interval: " << pcd_save_interval 
+            << ", RGB points: " << pcl_wait_save->points.size() 
+            << ", Intensity points: " << pcl_wait_save_intensity->points.size() << std::endl;
+  
   if (pcd_save_en && (pcl_wait_save->points.size() > 0 || pcl_wait_save_intensity->points.size() > 0) && pcd_save_interval < 0) 
   {
     std::string raw_points_dir = std::string(ROOT_DIR) + "Log/pcd/all_raw_points.pcd";
@@ -649,23 +666,35 @@ void LIVMapper::savePCD()
 void LIVMapper::run(rclcpp::Node::SharedPtr &node) 
 {
   rclcpp::Rate rate(5000);
-  while (rclcpp::ok()) 
-  {
-    rclcpp::spin_some(this->node);
-    if (!sync_packages(LidarMeasures)) 
+  try {
+    while (rclcpp::ok()) 
     {
-      rate.sleep();
-      continue;
+      rclcpp::spin_some(this->node);
+      if (!sync_packages(LidarMeasures)) 
+      {
+        rate.sleep();
+        continue;
+      }
+      handleFirstFrame();
+
+      processImu();
+
+      // if (!p_imu->imu_time_init) continue;
+
+      stateEstimationAndMapping();
     }
-    handleFirstFrame();
-
-    processImu();
-
-    // if (!p_imu->imu_time_init) continue;
-
-    stateEstimationAndMapping();
   }
+  catch (const std::exception& e) {
+    std::cerr << "[LIVMapper] Exception caught: " << e.what() << std::endl;
+  }
+  catch (...) {
+    std::cerr << "[LIVMapper] Unknown exception caught" << std::endl;
+  }
+  
+  // 确保在程序退出时保存点云（包括Ctrl+C的情况）
+  std::cout << "[LIVMapper] Program exiting, saving PCD files..." << std::endl;
   savePCD();
+  std::cout << "[LIVMapper] PCD save completed." << std::endl;
 }
 
 void LIVMapper::prop_imu_once(StatesGroup &imu_prop_state, const double dt, V3D acc_avr, V3D angvel_avr)
@@ -946,7 +975,13 @@ void LIVMapper::imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr &msg_in)
 cv::Mat LIVMapper::getImageFromMsg(const sensor_msgs::msg::Image::ConstSharedPtr &img_msg)
 {
   cv::Mat img;
-  img = cv_bridge::toCvShare(img_msg, "bgr8")->image;
+  // img = cv_bridge::toCvShare(img_msg, "bgr8")->image;
+  try {
+    // 使用 toCvCopy 强制执行深拷贝，获取独立内存副本
+    img = cv_bridge::toCvCopy(img_msg, "bgr8")->image; 
+  } catch (cv_bridge::Exception& e) {
+    RCLCPP_ERROR(this->node->get_logger(), "cv_bridge exception: %s", e.what());
+  }
   return img;
 }
 
@@ -1184,25 +1219,64 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     // 刚做完LIO，准备VIO数据
     case LIO:
     {
+      // double img_capture_time = img_time_buffer.front() + exposure_time_init;
+      // meas.lio_vio_flg = VIO;
+      // // printf("[ Data Cut ] VIO \n");
+      // meas.measures.clear();
+      // double imu_time = stamp2Sec(imu_buffer.front()->header.stamp);
+
+      // struct MeasureGroup m;
+      // m.vio_time = img_capture_time;
+      // m.lio_time = meas.last_lio_update_time;
+      // m.img = img_buffer.front();
+      // mtx_buffer.lock();
+
+      // img_buffer.pop_front();
+      // img_time_buffer.pop_front();
+      // mtx_buffer.unlock();
+      // sig_buffer.notify_all();
+      // meas.measures.push_back(m);
+      // lidar_pushed = false; // after VIO update, the _lidar_frame_end_time will be refresh.
+      // // printf("[ Data Cut ] VIO process time: %lf \n", omp_get_wtime() - t0);
+      // return true;
+      // 1. 先进行外部判空，避免不必要的锁竞争
+      if (img_time_buffer.empty() || img_buffer.empty()) return false;
+
       double img_capture_time = img_time_buffer.front() + exposure_time_init;
       meas.lio_vio_flg = VIO;
-      // printf("[ Data Cut ] VIO \n");
       meas.measures.clear();
-      double imu_time = stamp2Sec(imu_buffer.front()->header.stamp);
 
       struct MeasureGroup m;
       m.vio_time = img_capture_time;
       m.lio_time = meas.last_lio_update_time;
-      m.img = img_buffer.front();
-      mtx_buffer.lock();
 
-      img_buffer.pop_front();
-      img_time_buffer.pop_front();
+      // 核心原则：加锁 -> 取值 -> 弹出 -> 解锁
+      // 必须在锁内完成赋值，确保 m.img 指向的内存块在弹出前是绝对安全的
+      mtx_buffer.lock();
+      
+      // 双重检查，防止在加锁瞬间 buffer 被其他线程清空导致崩溃
+      if (!img_buffer.empty()) 
+      {
+        // 如果这里直接 m.img = img_buffer.front() 导致撕裂
+        // 且 clone() 导致崩溃，说明内存管理有冲突。
+        // 这里采用赋值，但必须在锁内完成。
+        m.img = img_buffer.front();
+        
+        img_buffer.pop_front();
+        img_time_buffer.pop_front();
+      }
+      else 
+      {
+        mtx_buffer.unlock();
+        return false;
+      }
+      
       mtx_buffer.unlock();
       sig_buffer.notify_all();
+
       meas.measures.push_back(m);
-      lidar_pushed = false; // after VIO update, the _lidar_frame_end_time will be refresh.
-      // printf("[ Data Cut ] VIO process time: %lf \n", omp_get_wtime() - t0);
+      lidar_pushed = false;
+      
       return true;
     }
 
@@ -1279,6 +1353,7 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
       laserCloudWorldRGB->reserve(size);
       // double inv_expo = _state.inv_expo_time;
       cv::Mat img_rgb = vio_manager->img_rgb;
+      double t1 = omp_get_wtime();
       for (size_t i = 0; i < size; i++)
       {
         PointTypeRGB pointRGB;
@@ -1287,22 +1362,41 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
         pointRGB.z = pcl_wait_pub->points[i].z;
 
         V3D p_w(pcl_wait_pub->points[i].x, pcl_wait_pub->points[i].y, pcl_wait_pub->points[i].z);
-        V3D pf(vio_manager->new_frame_->w2f(p_w)); if (pf[2] < 0) continue;
+        V3D pf(vio_manager->new_frame_->w2f(p_w)); 
+        if (vio_manager->cam_model_type == "Pinhole" && pf[2] < 0) continue;
         V2D pc(vio_manager->new_frame_->w2c(p_w));
         // 获取插值后的像素
         if (vio_manager->new_frame_->cam_->isInFrame(pc.cast<int>(), 3)) // 100
         {
-          V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
-          pointRGB.r = pixel[2];
-          pointRGB.g = pixel[1];
-          pointRGB.b = pixel[0];
-          // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
-          // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
-          // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
-          // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
-          if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
+          if(vio_manager->cam_model_type == "MEICamera") {
+            // V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
+            V3F pixel = vio_manager->getInterpolatedPixelFromSphere(img_rgb, pc, pf);
+            if(pixel[0] >= 0) {
+              pointRGB.r = pixel[2];
+              pointRGB.g = pixel[1];
+              pointRGB.b = pixel[0];
+              // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
+              // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
+              // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
+              // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
+              if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
+            }
+          } 
+          // else {
+          //   V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
+          //   pointRGB.r = pixel[2];
+          //   pointRGB.g = pixel[1];
+          //   pointRGB.b = pixel[0];
+          //   // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
+          //   // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
+          //   // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
+          //   // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
+          //   if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
+          // }
         }
       }
+      double t2 = omp_get_wtime();
+      printf("\033[1;32m[Render Time]: %-27f s\033[0m\n", t2 - t1);
     }
   }
 
@@ -1341,13 +1435,50 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
       case 0: /** world frame **/
         if (slam_mode_ == LIVO)
         {
-          *pcl_wait_save += *laserCloudWorldRGB;
+          // LIVO模式：优先保存VIO生成的彩色点云
+          if (LidarMeasures.lio_vio_flg == VIO)
+          {
+            if (laserCloudWorldRGB->size() > 0)
+            {
+              // 有彩色点云时，累积彩色点云
+              *pcl_wait_save += *laserCloudWorldRGB;
+              scan_wait_num++;
+              std::cout << "[PCD Save] Accumulated " << laserCloudWorldRGB->size() 
+                        << " RGB points. Total: " << pcl_wait_save->size() << std::endl;
+            }
+            else
+            {
+              // 如果VIO时没有生成彩色点云（pub_num < pub_scan_num），累积灰度点云作为备用
+              // 这样即使程序被中断，也能保存部分点云
+              if (pcl_w_wait_pub->size() > 0)
+              {
+                *pcl_wait_save_intensity += *pcl_w_wait_pub;
+                scan_wait_num++;
+                std::cout << "[PCD Save] VIO mode but no RGB points, accumulated " 
+                          << pcl_w_wait_pub->size() << " intensity points. Total: " 
+                          << pcl_wait_save_intensity->size() << std::endl;
+              }
+            }
+          }
+          else if (LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO)
+          {
+            // LIO模式下不累积点云，因为它们是中间状态，会在下一次VIO时被着色
+            // 如果用户想要保存所有点云，可以取消下面的注释
+            // *pcl_wait_save_intensity += *pcl_w_wait_pub;
+            // scan_wait_num++;
+          }
         }
         else
         {
+          // ONLY_LIO或ONLY_LO模式：保存灰度点云
           *pcl_wait_save_intensity += *pcl_w_wait_pub;
+          if(LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO) 
+          {
+            scan_wait_num++;
+            std::cout << "[PCD Save] LIO/LO mode, accumulated " << pcl_w_wait_pub->size() 
+                      << " intensity points. Total: " << pcl_wait_save_intensity->size() << std::endl;
+          }
         }
-        if(LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO) scan_wait_num++;
         break;
 
       case 1: /** body frame **/
