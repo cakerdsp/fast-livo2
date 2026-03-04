@@ -18,7 +18,8 @@ def generate_launch_description():
     #这里我们修改加载的雷达参数配置文件：mid360.yaml
     avia_config_cmd = os.path.join(config_file_dir, "mid360_mei.yaml")
     #相机内参配置文件保持不变
-    camera_config_cmd = os.path.join(config_file_dir, "camera_mei.yaml")
+    # camera_config_cmd = os.path.join(config_file_dir, "camera_mei.yaml")
+    camera_config_cmd = os.path.join(config_file_dir, "camera_virtual_pinhole.yaml")
 
     # 打开 use_rviz
     use_rviz_arg = DeclareLaunchArgument(

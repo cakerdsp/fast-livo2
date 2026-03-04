@@ -130,6 +130,23 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   try_declare.template operator()<bool>("publish.pub_effect_point_en", false);
   try_declare.template operator()<bool>("publish.dense_map_en", false);
 
+  try_declare.template operator()<std::string>("cam0.model", "MEI");
+  try_declare.template operator()<int>("cam0.width", 1088);
+  try_declare.template operator()<int>("cam0.height", 1280);
+  try_declare.template operator()<double>("cam0.scale", 1.0);
+  try_declare.template operator()<double>("cam0.fx", 1661.519541);
+  try_declare.template operator()<double>("cam0.fy", 1661.186841);
+  try_declare.template operator()<double>("cam0.cx", 535.124575);
+  try_declare.template operator()<double>("cam0.cy", 646.963644);
+  try_declare.template operator()<double>("cam0.xi", 3.177956);
+  try_declare.template operator()<double>("cam0.k1", -0.056745);
+  try_declare.template operator()<double>("cam0.k2", 0.426441);
+  try_declare.template operator()<double>("cam0.p1", -0.000266);
+  try_declare.template operator()<double>("cam0.p2", -0.001028);
+  try_declare.template operator()<int>("cam0.virtual_width", 1080);
+  try_declare.template operator()<int>("cam0.virtual_height", 1080);
+  try_declare.template operator()<double>("cam0.ax", 120);
+  try_declare.template operator()<double>("cam0.ay", 120);
   // get parameter
   this->node->get_parameter("common.lid_topic", lid_topic);
   this->node->get_parameter("common.imu_topic", imu_topic);
@@ -193,6 +210,24 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   this->node->get_parameter("publish.pub_effect_point_en", pub_effect_point_en);
   this->node->get_parameter("publish.dense_map_en", dense_map_en);
 
+  this->node->get_parameter("cam0.model", cam0.model);
+  this->node->get_parameter("cam0.width", cam0.width);
+  this->node->get_parameter("cam0.height", cam0.height);
+  this->node->get_parameter("cam0.scale", cam0.scale);
+  this->node->get_parameter("cam0.fx", cam0.fx);
+  this->node->get_parameter("cam0.fy", cam0.fy);
+  this->node->get_parameter("cam0.cx", cam0.cx);
+  this->node->get_parameter("cam0.cy", cam0.cy);
+  this->node->get_parameter("cam0.xi", cam0.xi);
+  this->node->get_parameter("cam0.k1", cam0.k1);
+  this->node->get_parameter("cam0.k2", cam0.k2);
+  this->node->get_parameter("cam0.p1", cam0.p1);
+  this->node->get_parameter("cam0.p2", cam0.p2);
+  this->node->get_parameter("cam0.virtual_width", cam0.virtual_width);
+  this->node->get_parameter("cam0.virtual_height", cam0.virtual_height);
+  this->node->get_parameter("cam0.ax", cam0.ax);
+  this->node->get_parameter("cam0.ay", cam0.ay);
+
   p_pre->blind_sqr = p_pre->blind * p_pre->blind;
 }
 
@@ -251,6 +286,82 @@ void LIVMapper::initializeComponents(rclcpp::Node::SharedPtr &node)
   if (!exposure_estimate_en) p_imu->disable_exposure_est();
 
   slam_mode_ = (img_en && lidar_en) ? LIVO : imu_en ? ONLY_LIO : ONLY_LO;
+
+
+  map_x0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  map_y0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  precomputeMappingTable(map_x0, map_y0, cam0);
+
+}
+
+
+void LIVMapper::precomputeMappingTable(cv::Mat& map_x, cv::Mat& map_y, const cam_params& cp) {
+  // 1. 取得目标分辨率（由传入的矩阵决定，即 cp.virtual_width/height）
+  int W = map_x.cols;
+  int H = map_x.rows;
+
+  // 2. 重新计算该相机对应的虚拟内参（确保与你加载的一致）
+  double fov_radx = cp.ax * M_PI / 180.0;
+  double fov_rady = cp.ay * M_PI / 180.0;
+  double v_fx = (W / 2.0) / tan(fov_radx / 2.0);
+  double v_fy = (H / 2.0) / tan(fov_rady / 2.0);
+  double v_cx = W / 2.0;
+  double v_cy = H / 2.0;
+
+  // 3. 提取原始 Mei + Radtan 标定参数
+  double xi = cp.xi;
+  double fu = cp.fx;
+  double fv = cp.fy;
+  double cu = cp.cx;
+  double cv = cp.cy;
+  double k1 = cp.k1;
+  double k2 = cp.k2;
+  double p1 = cp.p1;
+  double p2 = cp.p2;
+
+  // 4. 双重循环生成查找表
+  for (int v = 0; v < H; v++) {
+      // 使用指针提高访问效率（RK3588友好）
+      float* ptr_x = map_x.ptr<float>(v);
+      float* ptr_y = map_y.ptr<float>(v);
+
+      for (int u = 0; u < W; u++) {
+          // --- 步骤 A: 虚拟针孔逆投影到 3D 射线 (Z=1 为深度) ---
+          double X = (u - v_cx) / v_fx;
+          double Y = (v - v_cy) / v_fy;
+          double Z = 1.0;
+
+          // --- 步骤 B: 投影到单位球 ---
+          double norm = std::sqrt(X * X + Y * Y + Z * Z);
+          double Xs = X / norm;
+          double Ys = Y / norm;
+          double Zs = Z / norm;
+
+          // --- 步骤 C: 映射到 Mei 归一化平面 ---
+          // 这里的 rho 必须严格遵循 world2cam 逻辑：Zs + xi
+          double rho = Zs + xi;
+          double mx = Xs / rho;
+          double my = Ys / rho;
+
+          // --- 步骤 D: 应用 Radtan 畸变模型 ---
+          double r2 = mx * mx + my * my;
+          double r4 = r2 * r2;
+          
+          // 径向畸变
+          double radial = 1.0 + k1 * r2 + k2 * r4;
+          // 切向畸变
+          double dx = 2.0 * p1 * mx * my + p2 * (r2 + 2.0 * mx * mx);
+          double dy = p1 * (r2 + 2.0 * my * my) + 2.0 * p2 * mx * my;
+
+          double u_distorted = mx * radial + dx;
+          double v_distorted = my * radial + dy;
+
+          // --- 步骤 E: 转换回原始鱼眼像素坐标并存表 ---
+          ptr_x[u] = static_cast<float>(fu * u_distorted + cu);
+          ptr_y[u] = static_cast<float>(fv * v_distorted + cv);
+      }
+  }
+  std::cout << "\033[1;32m[LUT] Camera Mapping Table (O1) Precomputed Success.\033[0m" << std::endl;
 }
 
 void LIVMapper::initializeFiles() 
@@ -1029,7 +1140,23 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
   }
 
   cv::Mat img_cur = getImageFromMsg(msg);
-  img_buffer.push_back(img_cur);
+
+
+
+
+  cv::Mat img_rectified;
+  if (!map_x0.empty() && !map_y0.empty()) 
+  {
+    // 这里只进行像素搬运，没有任何复杂的数学运算，保证实时性
+    cv::remap(img_cur,img_rectified, map_x0, map_y0, cv::INTER_LINEAR);
+  }
+  else 
+  {
+    // 如果表没出来（理论上不会），保底使用原图
+    img_rectified = img_cur;
+  }
+  img_buffer.push_back(img_rectified);
+  // img_buffer.push_back(img_cur);
   img_time_buffer.push_back(img_time_correct);
 
   // ROS_INFO("Correct Image time: %.6f", img_time_correct);
@@ -1382,17 +1509,17 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
               if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
             }
           } 
-          // else {
-          //   V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
-          //   pointRGB.r = pixel[2];
-          //   pointRGB.g = pixel[1];
-          //   pointRGB.b = pixel[0];
-          //   // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
-          //   // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
-          //   // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
-          //   // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
-          //   if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
-          // }
+          else {
+            V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
+            pointRGB.r = pixel[2];
+            pointRGB.g = pixel[1];
+            pointRGB.b = pixel[0];
+            // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
+            // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
+            // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
+            // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
+            if (pf.norm() > blind_rgb_points) laserCloudWorldRGB->push_back(pointRGB);
+          }
         }
       }
       double t2 = omp_get_wtime();

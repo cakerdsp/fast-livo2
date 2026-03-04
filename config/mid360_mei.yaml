@@ -7,7 +7,7 @@
       imu_topic: "/livox/imu"  
       img_en: 1  
       lidar_en: 1 
-      only_render: 1
+      only_render: 0
       ros_driver_bug_fix: false  
 
     extrin_calib:
@@ -112,3 +112,22 @@
       mat_pre_en: false  # 是否启用 mat_pre.txt 日志（VIO/LIO 更新前的状态）
       mat_out_en: false  # 是否启用 mat_out.txt 日志（LIO 更新后的状态）
       imu_log_en: false  # 是否启用 imu.txt 日志（IMU 数据）
+    
+    cam0:
+      model: MEI
+      width: 1088
+      height: 1280
+      scale: 1.0
+      fx: 1661.519541
+      fy: 1661.186841
+      cx: 535.124575
+      cy: 646.963644
+      xi: 3.177956
+      k1: -0.056745
+      k2: 0.426441
+      p1: -0.000266
+      p2: -0.001028
+      virtual_width: 1080
+      virtual_height: 1080
+      ax: 120.0
+      ay: 120.0

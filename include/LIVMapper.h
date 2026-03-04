@@ -27,6 +27,30 @@ which is included as part of this source code package.
 #include <nav_msgs/msg/path.hpp>
 #include <vikit/camera_loader.h>
 
+
+
+// 这里
+struct cam_params {
+  std::string model;
+  int width;
+  int height;
+  double scale;
+  double fx;
+  double fy;
+  double cx;
+  double cy;
+  double xi;
+  double k1;
+  double k2;
+  double p1;
+  double p2;
+  int virtual_width;
+  int virtual_height;
+  double ax;
+  double ay;
+};
+
+
 class LIVMapper
 {
 public:
@@ -67,7 +91,7 @@ public:
   template <typename T> void pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi, Eigen::Matrix<T, 3, 1> &po);
   template <typename T> Eigen::Matrix<T, 3, 1> pointBodyToWorld(const Eigen::Matrix<T, 3, 1> &pi);
   cv::Mat getImageFromMsg(const sensor_msgs::msg::Image::ConstSharedPtr &img_msg);
-
+  void precomputeMappingTable(cv::Mat& map_x, cv::Mat& map_y, const cam_params& cp);
   std::mutex mtx_buffer, mtx_buffer_imu_prop;
   std::condition_variable sig_buffer;
 
@@ -194,5 +218,9 @@ public:
   double aver_time_icp = 0;
   double aver_time_map_inre = 0;
   bool colmap_output_en = false;
+
+
+  cam_params cam0;
+  cv::Mat map_x0, map_y0;
 };
 #endif

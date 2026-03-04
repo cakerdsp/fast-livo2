@@ -1,0 +1,15 @@
+/**:
+  ros__parameters:
+    parameter_blackboard:
+      model: Pinhole
+      width: 1080
+      height: 1080
+      scale: 1.0
+      fx: 311.769145
+      fy: 311.769145
+      cx: 540.0
+      cy: 540.0
+      d0: 0.0
+      d1: 0.0
+      d2: 0.0
+      d3: 0.0
