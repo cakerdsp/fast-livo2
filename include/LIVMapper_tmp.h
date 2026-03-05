@@ -27,65 +27,7 @@ which is included as part of this source code package.
 #include <nav_msgs/msg/path.hpp>
 #include <vikit/camera_loader.h>
 
-struct Sphere
-{
-  double theta;
-  double gamma;
-  Sphere() {theta = -1; gamma = -1;}
-  Sphere(const Eigen::Vector3d&xyz) {xyz2tg(xyz);}
-  bool isvalid() {return theta >= 0 && theta <= M_PI && gamma >= 0 && gamma < 2 * M_PI;}
-  bool isvalid(const Eigen::Vector2d& fov) {return theta >= 0 && theta <= fov[0] && gamma >= 0 && gamma <= fov[1];}
-  bool xyz2tg(const Eigen::Vector3d&xyz) {
-    double d2 = xyz.squaredNorm();
-    if (d2 < 1e-12) { // 极小值保护
-      theta = 0; gamma = 0;
-      return false; 
-    }
-    // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
-    double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
 
-    // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
-    // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
-    // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
-    theta = std::atan2(r_xy, xyz.z());
-
-    // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
-    // atan2 直接处理全周角 [-PI, PI] 的象限问题
-    gamma = std::atan2(xyz.y(), xyz.x());
-
-    // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
-    // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
-    if (gamma < 0) {
-      gamma += 2.0 * M_PI;
-    }
-    return isvalid();
-  }
-  bool xyz2tg(const Eigen::Vector3d&xyz, const Eigen::Vector2d& fov) {
-    double d2 = xyz.squaredNorm();
-    if (d2 < 1e-12) { // 极小值保护
-      theta = 0; gamma = 0;
-      return false; 
-    }
-    // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
-    double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
-
-    // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
-    // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
-    // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
-    theta = std::atan2(r_xy, xyz.z());
-
-    // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
-    // atan2 直接处理全周角 [-PI, PI] 的象限问题
-    gamma = std::atan2(xyz.y(), xyz.x());
-
-    // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
-    // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
-    if (gamma < 0) {
-      gamma += 2.0 * M_PI;
-    }
-    return isvalid(fov);
-  }
-};
 
 // 这里
 struct cam_params {
@@ -110,30 +52,6 @@ struct cam_params {
   double ay;
 };
 
-
-struct CameraUnit {
-    int id;
-    cam_params params;
-    cv::Mat map_x, map_y;
-    V3D extrinT_cl; // Camera to LiDAR
-    M3D extrinR_cl; // Camera to LiDAR
-    
-    // 每一个相机拥有独立的 VIO 管理器
-    VIOManagerPtr vio_manager; 
-    
-    std::deque<cv::Mat> img_buffer;
-    std::deque<double> img_time_buffer;
-
-    std::string topic_name;
-    
-    // 独立的订阅者
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_img;
-    // 每一个相机在 Body 坐标系下对应的球面范围
-    // 使用 std::pair 存储 min/max 的 (theta, gamma)
-    double min_theta, max_theta;
-    double min_gamma, max_gamma;
-    bool gamma_wraps; // 处理方位角跨越 2*PI 到 0 的边界情况
-};
 
 class LIVMapper
 {
@@ -306,15 +224,5 @@ public:
 
   cam_params cam0;
   cv::Mat map_x0, map_y0;
-
-
-  // 多相机 
-  std::vector<CameraUnit> cameras_;
-
-  int camera_num_ = 0;
-
-  std::vector<std::string> cam_names;
-  void multi_img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in, int cam_id);
-  void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pubLaserCloudFullRes);
 };
 #endif

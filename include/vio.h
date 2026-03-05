@@ -26,65 +26,65 @@ which is included as part of this source code package.
 #include <vikit/equidistant_camera.h>
 #include <vikit/mei_camera.h>
 
-struct Sphere
-{
-  double theta;
-  double gamma;
-  Sphere() {theta = -1; gamma = -1;}
-  Sphere(const Eigen::Vector3d&xyz) {xyz2tg(xyz);}
-  bool isvalid() {return theta >= 0 && theta <= M_PI && gamma >= 0 && gamma < 2 * M_PI;}
-  bool isvalid(const Eigen::Vector2d& fov) {return theta >= 0 && theta <= fov[0] && gamma >= 0 && gamma <= fov[1];}
-  bool xyz2tg(const Eigen::Vector3d&xyz) {
-    double d2 = xyz.squaredNorm();
-    if (d2 < 1e-12) { // 极小值保护
-      theta = 0; gamma = 0;
-      return false; 
-    }
-    // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
-    double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
+// struct Sphere
+// {
+//   double theta;
+//   double gamma;
+//   Sphere() {theta = -1; gamma = -1;}
+//   Sphere(const Eigen::Vector3d&xyz) {xyz2tg(xyz);}
+//   bool isvalid() {return theta >= 0 && theta <= M_PI && gamma >= 0 && gamma < 2 * M_PI;}
+//   bool isvalid(const Eigen::Vector2d& fov) {return theta >= 0 && theta <= fov[0] && gamma >= 0 && gamma <= fov[1];}
+//   bool xyz2tg(const Eigen::Vector3d&xyz) {
+//     double d2 = xyz.squaredNorm();
+//     if (d2 < 1e-12) { // 极小值保护
+//       theta = 0; gamma = 0;
+//       return false; 
+//     }
+//     // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
+//     double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
 
-    // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
-    // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
-    // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
-    theta = std::atan2(r_xy, xyz.z());
+//     // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
+//     // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
+//     // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
+//     theta = std::atan2(r_xy, xyz.z());
 
-    // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
-    // atan2 直接处理全周角 [-PI, PI] 的象限问题
-    gamma = std::atan2(xyz.y(), xyz.x());
+//     // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
+//     // atan2 直接处理全周角 [-PI, PI] 的象限问题
+//     gamma = std::atan2(xyz.y(), xyz.x());
 
-    // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
-    // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
-    if (gamma < 0) {
-      gamma += 2.0 * M_PI;
-    }
-    return isvalid();
-  }
-  bool xyz2tg(const Eigen::Vector3d&xyz, const Eigen::Vector2d& fov) {
-    double d2 = xyz.squaredNorm();
-    if (d2 < 1e-12) { // 极小值保护
-      theta = 0; gamma = 0;
-      return false; 
-    }
-    // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
-    double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
+//     // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
+//     // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
+//     if (gamma < 0) {
+//       gamma += 2.0 * M_PI;
+//     }
+//     return isvalid();
+//   }
+//   bool xyz2tg(const Eigen::Vector3d&xyz, const Eigen::Vector2d& fov) {
+//     double d2 = xyz.squaredNorm();
+//     if (d2 < 1e-12) { // 极小值保护
+//       theta = 0; gamma = 0;
+//       return false; 
+//     }
+//     // 1. 计算与 Z 轴的投影长度 (平面的径向距离)
+//     double r_xy = std::sqrt(xyz.x() * xyz.x() + xyz.y() * xyz.y());
 
-    // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
-    // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
-    // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
-    theta = std::atan2(r_xy, xyz.z());
+//     // 2. 计算 theta (天顶角 / 与 Z 轴的夹角)
+//     // 使用 atan2(r_xy, z) 可以无歧义地处理从 0 到 PI 的范围
+//     // 即使 z 为 0，atan2(r_xy, 0) 也会返回 PI/2，完全不需要手动判断
+//     theta = std::atan2(r_xy, xyz.z());
 
-    // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
-    // atan2 直接处理全周角 [-PI, PI] 的象限问题
-    gamma = std::atan2(xyz.y(), xyz.x());
+//     // 3. 计算 gamma (方位角 / 在 XY 平面的旋转角)
+//     // atan2 直接处理全周角 [-PI, PI] 的象限问题
+//     gamma = std::atan2(xyz.y(), xyz.x());
 
-    // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
-    // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
-    if (gamma < 0) {
-      gamma += 2.0 * M_PI;
-    }
-    return isvalid(fov);
-  }
-};
+//     // 4. 将 gamma 从 [-PI, PI] 映射到 [0, 2*PI)
+//     // 这样可以确保 gamma 始终为正，且符合你 isvalid() 中定义的范围
+//     if (gamma < 0) {
+//       gamma += 2.0 * M_PI;
+//     }
+//     return isvalid(fov);
+//   }
+// };
 
 struct SubSparseMap
 {

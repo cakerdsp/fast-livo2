@@ -42,7 +42,7 @@
       
     time_offset:  
       imu_time_offset: 0.0  # IMU 时间偏移（单位：秒）
-      img_time_offset: 0.1  
+      img_time_offset: 0.0  
       exposure_time_init: 0.0  
 
     preprocess:  
@@ -131,3 +131,23 @@
       virtual_height: 1080
       ax: 120.0
       ay: 120.0
+
+
+    # cam0:
+    #   model: KB4
+    #   width: 1280
+    #   height: 1024
+    #   scale: 1.0
+    #   fx: 1661.519541
+    #   fy: 1661.186841
+    #   cx: 535.124575
+    #   cy: 646.963644
+    #   xi: 3.177956
+    #   k1: -0.056745
+    #   k2: 0.426441
+    #   k3: -0.000266
+    #   k4: -0.001028
+    #   virtual_width: 1080
+    #   virtual_height: 1080
+    #   ax: 120.0
+    #   ay: 120.0

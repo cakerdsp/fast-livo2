@@ -67,6 +67,7 @@ struct MeasureGroup
   double vio_time;
   double lio_time;
   deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu;
+  int cam_id;
   cv::Mat img;
   MeasureGroup()
   {

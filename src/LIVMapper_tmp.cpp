@@ -40,7 +40,7 @@ LIVMapper::LIVMapper(rclcpp::Node::SharedPtr &node, std::string node_name, const
   pcl_wait_save.reset(new PointCloudXYZRGB());
   pcl_wait_save_intensity.reset(new PointCloudXYZI());
   voxelmap_manager.reset(new VoxelMapManager(voxel_config, voxel_map));
-  // vio_manager.reset(new VIOManager());
+  vio_manager.reset(new VIOManager());
   root_dir = ROOT_DIR;
   initializeFiles();
   initializeComponents(this->node);          // initialize components errors
@@ -130,56 +130,25 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   try_declare.template operator()<bool>("publish.pub_effect_point_en", false);
   try_declare.template operator()<bool>("publish.dense_map_en", false);
 
-  // try_declare.template operator()<std::string>("cam0.model", "MEI");
-  // try_declare.template operator()<int>("cam0.width", 1088);
-  // try_declare.template operator()<int>("cam0.height", 1280);
-  // try_declare.template operator()<double>("cam0.scale", 1.0);
-  // try_declare.template operator()<double>("cam0.fx", 1661.519541);
-  // try_declare.template operator()<double>("cam0.fy", 1661.186841);
-  // try_declare.template operator()<double>("cam0.cx", 535.124575);
-  // try_declare.template operator()<double>("cam0.cy", 646.963644);
-  // try_declare.template operator()<double>("cam0.xi", 3.177956);
-  // try_declare.template operator()<double>("cam0.k1", -0.056745);
-  // try_declare.template operator()<double>("cam0.k2", 0.426441);
-  // try_declare.template operator()<double>("cam0.k3", 0.426441);
-  // try_declare.template operator()<double>("cam0.k4", 0.426441);
-  // try_declare.template operator()<double>("cam0.p1", -0.000266);
-  // try_declare.template operator()<double>("cam0.p2", -0.001028);
-  // try_declare.template operator()<int>("cam0.virtual_width", 1080);
-  // try_declare.template operator()<int>("cam0.virtual_height", 1080);
-  // try_declare.template operator()<double>("cam0.ax", 120);
-  // try_declare.template operator()<double>("cam0.ay", 120);
-
-  cam_names = try_declare.template operator()<std::vector<std::string>>("common.camera_names", std::vector<std::string>{"cam0"});
-  camera_num_ = cam_names.size();
-  cameras_.resize(camera_num_);
-
-  // 3. 循环声明每个相机的参数
-  for (int i = 0; i < camera_num_; ++i) {
-    std::string ns = cam_names[i];
-    try_declare.template operator()<std::string>(ns + ".model", "MEI");
-    try_declare.template operator()<std::string>(ns + ".topic", "/camera/image"); // 建议增加 topic 声明
-    try_declare.template operator()<int>(ns + ".width", 1280);
-    try_declare.template operator()<int>(ns + ".height", 1080);
-    try_declare.template operator()<double>(ns + ".fx", 1000.0);
-    try_declare.template operator()<double>(ns + ".fy", 1000.0);
-    try_declare.template operator()<double>(ns + ".cx", 640.0);
-    try_declare.template operator()<double>(ns + ".cy", 540.0);
-    try_declare.template operator()<double>(ns + ".xi", 0.0);
-    try_declare.template operator()<double>(ns + ".k1", 0.0);
-    try_declare.template operator()<double>(ns + ".k2", 0.0);
-    try_declare.template operator()<double>(ns + ".k3", 0.0);
-    try_declare.template operator()<double>(ns + ".k4", 0.0);
-    try_declare.template operator()<double>(ns + ".p1", 0.0);
-    try_declare.template operator()<double>(ns + ".p2", 0.0);
-    try_declare.template operator()<int>(ns + ".virtual_width", 1000);
-    try_declare.template operator()<int>(ns + ".virtual_height", 1000);
-    try_declare.template operator()<double>(ns + ".ax", 120.0);
-    try_declare.template operator()<double>(ns + ".ay", 120.0);
-    try_declare.template operator()<std::vector<double>>(ns + ".extrin_T", std::vector<double>{0,0,0});
-    try_declare.template operator()<std::vector<double>>(ns + ".extrin_R", std::vector<double>{1,0,0,0,1,0,0,0,1});
-  }
-
+  try_declare.template operator()<std::string>("cam0.model", "MEI");
+  try_declare.template operator()<int>("cam0.width", 1088);
+  try_declare.template operator()<int>("cam0.height", 1280);
+  try_declare.template operator()<double>("cam0.scale", 1.0);
+  try_declare.template operator()<double>("cam0.fx", 1661.519541);
+  try_declare.template operator()<double>("cam0.fy", 1661.186841);
+  try_declare.template operator()<double>("cam0.cx", 535.124575);
+  try_declare.template operator()<double>("cam0.cy", 646.963644);
+  try_declare.template operator()<double>("cam0.xi", 3.177956);
+  try_declare.template operator()<double>("cam0.k1", -0.056745);
+  try_declare.template operator()<double>("cam0.k2", 0.426441);
+  try_declare.template operator()<double>("cam0.k3", 0.426441);
+  try_declare.template operator()<double>("cam0.k4", 0.426441);
+  try_declare.template operator()<double>("cam0.p1", -0.000266);
+  try_declare.template operator()<double>("cam0.p2", -0.001028);
+  try_declare.template operator()<int>("cam0.virtual_width", 1080);
+  try_declare.template operator()<int>("cam0.virtual_height", 1080);
+  try_declare.template operator()<double>("cam0.ax", 120);
+  try_declare.template operator()<double>("cam0.ay", 120);
   // get parameter
   this->node->get_parameter("common.lid_topic", lid_topic);
   this->node->get_parameter("common.imu_topic", imu_topic);
@@ -243,63 +212,25 @@ void LIVMapper::readParameters(rclcpp::Node::SharedPtr &node)
   this->node->get_parameter("publish.pub_effect_point_en", pub_effect_point_en);
   this->node->get_parameter("publish.dense_map_en", dense_map_en);
 
-  // this->node->get_parameter("cam0.model", cam0.model);
-  // this->node->get_parameter("cam0.width", cam0.width);
-  // this->node->get_parameter("cam0.height", cam0.height);
-  // this->node->get_parameter("cam0.scale", cam0.scale);
-  // this->node->get_parameter("cam0.fx", cam0.fx);
-  // this->node->get_parameter("cam0.fy", cam0.fy);
-  // this->node->get_parameter("cam0.cx", cam0.cx);
-  // this->node->get_parameter("cam0.cy", cam0.cy);
-  // this->node->get_parameter("cam0.xi", cam0.xi);
-  // this->node->get_parameter("cam0.k1", cam0.k1);
-  // this->node->get_parameter("cam0.k2", cam0.k2);
-  // this->node->get_parameter("cam0.k3", cam0.k3);
-  // this->node->get_parameter("cam0.k4", cam0.k4);
-  // this->node->get_parameter("cam0.p1", cam0.p1);
-  // this->node->get_parameter("cam0.p2", cam0.p2);
-  // this->node->get_parameter("cam0.virtual_width", cam0.virtual_width);
-  // this->node->get_parameter("cam0.virtual_height", cam0.virtual_height);
-  // this->node->get_parameter("cam0.ax", cam0.ax);
-  // this->node->get_parameter("cam0.ay", cam0.ay);
-
-  for (int i = 0; i < camera_num_; ++i) {
-    std::string ns = cam_names[i];
-    auto& cu = cameras_[i];
-    cu.id = i;
-
-    this->node->get_parameter(ns + ".model", cu.params.model);
-    this->node->get_parameter(ns + ".topic", cu.topic_name); // 对应结构体新增的成员
-    this->node->get_parameter(ns + ".width", cu.params.width);
-    this->node->get_parameter(ns + ".height", cu.params.height);
-    this->node->get_parameter(ns + ".fx", cu.params.fx);
-    this->node->get_parameter(ns + ".fy", cu.params.fy);
-    this->node->get_parameter(ns + ".cx", cu.params.cx);
-    this->node->get_parameter(ns + ".cy", cu.params.cy);
-    this->node->get_parameter(ns + ".xi", cu.params.xi);
-    this->node->get_parameter(ns + ".k1", cu.params.k1);
-    this->node->get_parameter(ns + ".k2", cu.params.k2);
-    this->node->get_parameter(ns + ".k3", cu.params.k3);
-    this->node->get_parameter(ns + ".k4", cu.params.k4);
-    this->node->get_parameter(ns + ".p1", cu.params.p1);
-    this->node->get_parameter(ns + ".p2", cu.params.p2);
-    this->node->get_parameter(ns + ".virtual_width", cu.params.virtual_width);
-    this->node->get_parameter(ns + ".virtual_height", cu.params.virtual_height);
-    this->node->get_parameter(ns + ".ax", cu.params.ax);
-    this->node->get_parameter(ns + ".ay", cu.params.ay);
-
-    // 获取外参 (利用临时 vector 转换到 Eigen)
-    std::vector<double> ct, cr;
-    this->node->get_parameter(ns + ".extrin_T", ct);
-    this->node->get_parameter(ns + ".extrin_R", cr);
-    cu.extrinT_cl << ct[0], ct[1], ct[2];
-    cu.extrinR_cl << cr[0], cr[1], cr[2], cr[3], cr[4], cr[5], cr[6], cr[7], cr[8];
-  }
-
-  if (camera_num_ > 0) {
-    cam0 = cameras_[0].params;
-    // 如果需要，也可以把 map_x0 指向 cameras_[0].map_x (在初始化后)
-  }
+  this->node->get_parameter("cam0.model", cam0.model);
+  this->node->get_parameter("cam0.width", cam0.width);
+  this->node->get_parameter("cam0.height", cam0.height);
+  this->node->get_parameter("cam0.scale", cam0.scale);
+  this->node->get_parameter("cam0.fx", cam0.fx);
+  this->node->get_parameter("cam0.fy", cam0.fy);
+  this->node->get_parameter("cam0.cx", cam0.cx);
+  this->node->get_parameter("cam0.cy", cam0.cy);
+  this->node->get_parameter("cam0.xi", cam0.xi);
+  this->node->get_parameter("cam0.k1", cam0.k1);
+  this->node->get_parameter("cam0.k2", cam0.k2);
+  this->node->get_parameter("cam0.k3", cam0.k3);
+  this->node->get_parameter("cam0.k4", cam0.k4);
+  this->node->get_parameter("cam0.p1", cam0.p1);
+  this->node->get_parameter("cam0.p2", cam0.p2);
+  this->node->get_parameter("cam0.virtual_width", cam0.virtual_width);
+  this->node->get_parameter("cam0.virtual_height", cam0.virtual_height);
+  this->node->get_parameter("cam0.ax", cam0.ax);
+  this->node->get_parameter("cam0.ay", cam0.ay);
 
   p_pre->blind_sqr = p_pre->blind * p_pre->blind;
 }
@@ -319,30 +250,30 @@ void LIVMapper::initializeComponents(rclcpp::Node::SharedPtr &node)
   voxelmap_manager->extT_ << VEC_FROM_ARRAY(extrinT);
   voxelmap_manager->extR_ << MAT_FROM_ARRAY(extrinR);
 
-  // if (!vk::camera_loader::loadFromRosNs(this->node, "parameter_blackboard", vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
+  if (!vk::camera_loader::loadFromRosNs(this->node, "parameter_blackboard", vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
   // if (!vk::camera_loader::loadFromRosNs(this->node, "parameter_blackboard", vio_manager->cam)) {
   //   RCLCPP_ERROR(this->node->get_logger(), "Camera model not correctly specified. Please check camera parameters.");
   //   RCLCPP_ERROR(this->node->get_logger(), "Node will continue running for debugging purposes, but VIO may not work correctly.");
   //   // throw std::runtime_error("Camera model not correctly specified.");
   // }
-  // vio_manager->grid_size = grid_size;
-  // vio_manager->patch_size = patch_size;
-  // vio_manager->outlier_threshold = outlier_threshold;
-  // vio_manager->setImuToLidarExtrinsic(extT, extR);
-  // vio_manager->setLidarToCameraExtrinsic(cameraextrinR, cameraextrinT);
-  // vio_manager->state = &_state;
-  // vio_manager->state_propagat = &state_propagat;
-  // vio_manager->max_iterations = max_iterations;
-  // vio_manager->img_point_cov = IMG_POINT_COV;
-  // vio_manager->normal_en = normal_en;
-  // vio_manager->inverse_composition_en = inverse_composition_en;
-  // vio_manager->raycast_en = raycast_en;
-  // vio_manager->grid_n_width = grid_n_width;
-  // vio_manager->grid_n_height = grid_n_height;
-  // vio_manager->patch_pyrimid_level = patch_pyrimid_level;
-  // vio_manager->exposure_estimate_en = exposure_estimate_en;
-  // vio_manager->colmap_output_en = colmap_output_en;
-  // vio_manager->initializeVIO();
+  vio_manager->grid_size = grid_size;
+  vio_manager->patch_size = patch_size;
+  vio_manager->outlier_threshold = outlier_threshold;
+  vio_manager->setImuToLidarExtrinsic(extT, extR);
+  vio_manager->setLidarToCameraExtrinsic(cameraextrinR, cameraextrinT);
+  vio_manager->state = &_state;
+  vio_manager->state_propagat = &state_propagat;
+  vio_manager->max_iterations = max_iterations;
+  vio_manager->img_point_cov = IMG_POINT_COV;
+  vio_manager->normal_en = normal_en;
+  vio_manager->inverse_composition_en = inverse_composition_en;
+  vio_manager->raycast_en = raycast_en;
+  vio_manager->grid_n_width = grid_n_width;
+  vio_manager->grid_n_height = grid_n_height;
+  vio_manager->patch_pyrimid_level = patch_pyrimid_level;
+  vio_manager->exposure_estimate_en = exposure_estimate_en;
+  vio_manager->colmap_output_en = colmap_output_en;
+  vio_manager->initializeVIO();
 
   p_imu->set_extrinsic(extT, extR);
   p_imu->set_gyr_cov_scale(V3D(gyr_cov, gyr_cov, gyr_cov));
@@ -360,162 +291,11 @@ void LIVMapper::initializeComponents(rclcpp::Node::SharedPtr &node)
 
   slam_mode_ = (img_en && lidar_en) ? LIVO : imu_en ? ONLY_LIO : ONLY_LO;
 
-  // for (int i = 0; i < camera_num_; ++i) {
-  //   auto& cu = cameras_[i];
 
-  //   // 1. 初始化独立的 VIO 管理器
-  //   cu.vio_manager.reset(new VIOManager());
-    
-  //   // 2. 这里的关键是为 VIOManager 提供独立内参
-  //   // 注意：你需要确保你的 VIOManager 类有支持从 cam_params 结构体加载内参的接口
-  //   // 不支持，是AI自己瞎编的！！需要通过 
-  //   if (!vk::camera_loader::loadFromRosNs(this->node, "parameter_blackboard." + cam_names[i], cu.vio_manager->cam)) throw std::runtime_error("Camera model not correctly specified.");
-  //   // cu.vio_manager->setCameraParams(cu.params); 
-    
-  //   // 3. 配置外参 (IMU <-> Camera)
-  //   cu.vio_manager->setLidarToCameraExtrinsic(cu.extrinR_cl, cu.extrinT_cl);
-  //   cu.vio_manager->setImuToLidarExtrinsic(extT, extR);
+  map_x0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  map_y0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  precomputeMappingTable(map_x0, map_y0, cam0);
 
-  //   // 4. 共享全局状态
-  //   cu.vio_manager->state = &_state;
-  //   cu.vio_manager->state_propagat = &state_propagat;
-    
-  //   // ... 其他 vio_manager 的公共参数设置 ...
-  //   cu.vio_manager->grid_size = grid_size;
-  //   cu.vio_manager->patch_size = patch_size;
-  //   cu.vio_manager->outlier_threshold = outlier_threshold;
-  //   cu.vio_manager->max_iterations = max_iterations;
-  //   cu.vio_manager->img_point_cov = IMG_POINT_COV;
-  //   cu.vio_manager->normal_en = normal_en;
-  //   cu.vio_manager->inverse_composition_en = inverse_composition_en;
-  //   cu.vio_manager->raycast_en = raycast_en;
-  //   cu.vio_manager->grid_n_width = grid_n_width;
-  //   cu.vio_manager->grid_n_height = grid_n_height;
-  //   cu.vio_manager->patch_pyrimid_level = patch_pyrimid_level;
-  //   cu.vio_manager->exposure_estimate_en = exposure_estimate_en;
-  //   cu.vio_manager->colmap_output_en = colmap_output_en;
-  //   cu.vio_manager->initializeVIO();
-
-  //   // 5. 预计算该相机的 LUT
-  //   cu.map_x.create(cu.params.virtual_height, cu.params.virtual_width, CV_32FC1);
-  //   cu.map_y.create(cu.params.virtual_height, cu.params.virtual_width, CV_32FC1);
-  //   precomputeMappingTable(cu.map_x, cu.map_y, cu.params);
-  //   double h_fov_x = (cu.params.ax / 2.0) * M_PI / 180.0;
-  //   double h_fov_y = (cu.params.ay / 2.0) * M_PI / 180.0;
-  //   double tx = std::tan(h_fov_x);
-  //   double ty = std::tan(h_fov_y);
-
-  //   std::vector<V3D> corners_c = {
-  //       V3D( tx,  ty, 1.0).normalized(), V3D(-tx,  ty, 1.0).normalized(),
-  //       V3D(-tx, -ty, 1.0).normalized(), V3D( tx, -ty, 1.0).normalized(),
-  //       V3D( 0.0, 0.0, 1.0) // 包含中心轴
-  //   };
-
-  //   // 2. 坐标转换链：Camera -> LiDAR -> IMU
-  //   // Camera to LiDAR: R_cl.T, -R_cl.T * t_cl
-  //   M3D R_c2l = cu.extrinR_cl.transpose();
-  //   // LiDAR to IMU: extR.T, -extR.T * extT
-  //   M3D R_l2i = extR.transpose();
-
-  //   cu.min_theta = M_PI; cu.max_theta = 0;
-  //   cu.min_gamma = 2 * M_PI; cu.max_gamma = 0;
-
-  //   for (auto& v_c : corners_c) {
-  //       // 射线方向转换只涉及旋转矩阵
-  //       V3D v_i = R_l2i * (R_c2l * v_c);
-        
-  //       Sphere s;
-  //       s.xyz2tg(v_i); // 转换为 Body 系下的角坐标
-        
-  //       cu.min_theta = std::min(cu.min_theta, s.theta);
-  //       cu.max_theta = std::max(cu.max_theta, s.theta);
-  //       cu.min_gamma = std::min(cu.min_gamma, s.gamma);
-  //       cu.max_gamma = std::max(cu.max_gamma, s.gamma);
-  //   }
-  //   // 3. 边界判断：如果 gamma 极差超过 PI，说明视场横跨了 0/2PI 边界
-  //   cu.gamma_wraps = (cu.max_gamma - cu.min_gamma > M_PI);
-    
-  //   RCLCPP_INFO(this->node->get_logger(), "Cam %d Sphere Bounds: Theta[%.2f, %.2f], Gamma[%.2f, %.2f]", 
-  //               i, cu.min_theta, cu.max_theta, cu.min_gamma, cu.max_gamma);
-  // }
-  for (int i = 0; i < camera_num_; ++i) {
-    auto& cu = cameras_[i];
-
-    // 初始化独立的 VIO 管理器并加载内参
-    cu.vio_manager.reset(new VIOManager());
-    if (!vk::camera_loader::loadFromRosNs(this->node, "parameter_blackboard." + cam_names[i], cu.vio_manager->cam)) {
-        throw std::runtime_error("Camera model not correctly specified for " + cam_names[i]);
-    }
-    
-    // 配置外参及共享状态
-    std::vector<double> R_vec = {cu.extrinR_cl(0,0), cu.extrinR_cl(0,1), cu.extrinR_cl(0,2),
-      cu.extrinR_cl(1,0), cu.extrinR_cl(1,1), cu.extrinR_cl(1,2),
-      cu.extrinR_cl(2,0), cu.extrinR_cl(2,1), cu.extrinR_cl(2,2)};
-    std::vector<double> T_vec = {cu.extrinT_cl(0), cu.extrinT_cl(1), cu.extrinT_cl(2)};
-    cu.vio_manager->setLidarToCameraExtrinsic(R_vec, T_vec);
-    cu.vio_manager->setImuToLidarExtrinsic(extT, extR);
-    cu.vio_manager->state = &_state;
-    cu.vio_manager->state_propagat = &state_propagat;
-    
-    // 配置 VIO 公共参数
-    cu.vio_manager->grid_size = grid_size;
-    cu.vio_manager->patch_size = patch_size;
-    cu.vio_manager->outlier_threshold = outlier_threshold;
-    cu.vio_manager->max_iterations = max_iterations;
-    cu.vio_manager->img_point_cov = IMG_POINT_COV;
-    cu.vio_manager->normal_en = normal_en;
-    cu.vio_manager->inverse_composition_en = inverse_composition_en;
-    cu.vio_manager->raycast_en = raycast_en;
-    cu.vio_manager->grid_n_width = grid_n_width;
-    cu.vio_manager->grid_n_height = grid_n_height;
-    cu.vio_manager->patch_pyrimid_level = patch_pyrimid_level;
-    cu.vio_manager->exposure_estimate_en = exposure_estimate_en;
-    cu.vio_manager->colmap_output_en = colmap_output_en;
-    cu.vio_manager->initializeVIO();
-
-    // 4. 预计算该相机的 LUT (去畸变表)
-    if (cu.params.model != "PINHOLE") {
-      cu.map_x.create(cu.params.virtual_height, cu.params.virtual_width, CV_32FC1);
-      cu.map_y.create(cu.params.virtual_height, cu.params.virtual_width, CV_32FC1);
-      precomputeMappingTable(cu.map_x, cu.map_y, cu.params);
-    }
-
-    // 5. 预计算该相机在 Body (IMU) 系下的球面 FoV 范围
-    double h_fov_x = (cu.params.ax / 2.0) * M_PI / 180.0;
-    double h_fov_y = (cu.params.ay / 2.0) * M_PI / 180.0;
-    double tx = std::tan(h_fov_x);
-    double ty = std::tan(h_fov_y);
-
-    std::vector<V3D> corners_c = {
-        V3D( tx,  ty, 1.0).normalized(), V3D(-tx,  ty, 1.0).normalized(),
-        V3D(-tx, -ty, 1.0).normalized(), V3D( tx, -ty, 1.0).normalized(),
-        V3D( 0.0, 0.0, 1.0) 
-    };
-
-    // 旋转链：Camera -> LiDAR -> IMU
-    M3D R_c2l = cu.extrinR_cl.transpose(); // Camera to LiDAR
-    M3D R_l2i = extR;                      // LiDAR to IMU (基于你的结论)
-
-    cu.min_theta = M_PI; cu.max_theta = 0;
-    cu.min_gamma = 2 * M_PI; cu.max_gamma = 0;
-
-    for (auto& v_c : corners_c) {
-        V3D v_i = R_l2i * (R_c2l * v_c);
-        
-        Sphere s;
-        s.xyz2tg(v_i);
-        
-        cu.min_theta = std::min(cu.min_theta, s.theta);
-        cu.max_theta = std::max(cu.max_theta, s.theta);
-        cu.min_gamma = std::min(cu.min_gamma, s.gamma);
-        cu.max_gamma = std::max(cu.max_gamma, s.gamma);
-    }
-    
-    cu.gamma_wraps = (cu.max_gamma - cu.min_gamma > M_PI);
-    
-    RCLCPP_INFO(this->node->get_logger(), "Cam %d (%s) Sphere Bounds: Theta[%.2f, %.2f], Gamma[%.2f, %.2f]", 
-                i, cam_names[i].c_str(), cu.min_theta, cu.max_theta, cu.min_gamma, cu.max_gamma);
-  }
 }
 
 
@@ -525,24 +305,12 @@ void LIVMapper::precomputeMappingTable(cv::Mat& map_x, cv::Mat& map_y, const cam
   int H = map_x.rows;
 
   // 2. 重新计算该相机对应的虚拟内参（确保与你加载的一致）
-  double v_fx = 0;
-  double v_fy = 0;
-  double v_cx = 0;
-  double v_cy = 0;
-  if (cp.model != "PINHOLE") {
-    double fov_radx = cp.ax * M_PI / 180.0;
-    double fov_rady = cp.ay * M_PI / 180.0;
-    v_fx = (W / 2.0) / tan(fov_radx / 2.0);
-    v_fy = (H / 2.0) / tan(fov_rady / 2.0);
-    v_cx = W / 2.0;
-    v_cy = H / 2.0;
-  } else {
-    v_fx = cp.fx;
-    v_fy = cp.fy;
-    v_cx = cp.cx;
-    v_cy = cp.cy;
-  }
-
+  double fov_radx = cp.ax * M_PI / 180.0;
+  double fov_rady = cp.ay * M_PI / 180.0;
+  double v_fx = (W / 2.0) / tan(fov_radx / 2.0);
+  double v_fy = (H / 2.0) / tan(fov_rady / 2.0);
+  double v_cx = W / 2.0;
+  double v_cy = H / 2.0;
   if (cp.model == "MEI") {
     // 3. 提取原始 Mei + Radtan 标定参数
     double xi = cp.xi;
@@ -645,48 +413,6 @@ void LIVMapper::precomputeMappingTable(cv::Mat& map_x, cv::Mat& map_y, const cam
             ptr_y[u] = static_cast<float>(fv * scaling * my + cv);
         }
     }
-  } else if (cp.model == "PINHOLE") {
-    // 1. 提取原始针孔内参及 Radtan 畸变参数
-    double fu = cp.fx;
-    double fv = cp.fy;
-    double cu = cp.cx;
-    double cv = cp.cy;
-    double k1 = cp.k1;
-    double k2 = cp.k2;
-    double p1 = cp.p1;
-    double p2 = cp.p2;
-
-    // 2. 双重循环生成查找表
-    for (int v = 0; v < H; v++) {
-        float* ptr_x = map_x.ptr<float>(v);
-        float* ptr_y = map_y.ptr<float>(v);
-
-        for (int u = 0; u < W; u++) {
-            // --- 步骤 A: 虚拟针孔平面坐标 (归一化) ---
-            double mx = (u - v_cx) / v_fx;
-            double my = (v - v_cy) / v_fy;
-
-            // --- 步骤 B: 应用 Radtan 畸变模型 ---
-            double r2 = mx * mx + my * my;
-            double r4 = r2 * r2;
-            double r6 = r4 * r2;
-
-            // 径向畸变系数 (Radial)
-            double radial = 1.0 + k1 * r2 + k2 * r4;
-            
-            // 切向畸变项 (Tangential)
-            double dx = 2.0 * p1 * mx * my + p2 * (r2 + 2.0 * mx * mx);
-            double dy = p1 * (r2 + 2.0 * my * my) + 2.0 * p2 * mx * my;
-
-            // 畸变后的归一化坐标
-            double u_distorted = mx * radial + dx;
-            double v_distorted = my * radial + dy;
-
-            // --- 步骤 C: 映射到原始像素坐标并存表 ---
-            ptr_x[u] = static_cast<float>(fu * u_distorted + cu);
-            ptr_y[u] = static_cast<float>(fv * v_distorted + cv);
-        }
-    }
   }
   std::cout << "\033[1;32m[LUT] Camera Mapping Table (O1) Precomputed Success.\033[0m" << std::endl;
 }
@@ -727,23 +453,8 @@ void LIVMapper::initializeSubscribersAndPublishers(rclcpp::Node::SharedPtr &node
     sub_pcl = this->node->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, 200000, std::bind(&LIVMapper::standard_pcl_cbk, this, std::placeholders::_1));
   }
   sub_imu = this->node->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 200000, std::bind(&LIVMapper::imu_cbk, this, std::placeholders::_1));
-  // sub_img = this->node->create_subscription<sensor_msgs::msg::Image>(img_topic, 200000, std::bind(&LIVMapper::img_cbk, this, std::placeholders::_1));
-  for (int i = 0; i < camera_num_; ++i) {
-    std::string t_name;
-    // 从参数服务器获取该相机的 topic 名（已在 readParameters 中存入 cu.topic_name）
-    t_name = cameras_[i].topic_name; 
-
-    // 使用 Lambda 表达式动态绑定 cam_id (变量 i)
-    cameras_[i].sub_img = this->node->create_subscription<sensor_msgs::msg::Image>(
-      t_name, 
-      10, // QoS 深度
-      [this, i](const sensor_msgs::msg::Image::ConstSharedPtr msg) {
-        this->multi_img_cbk(msg, i); // 这里的 i 就是 cam_id
-      }
-    );
-
-    RCLCPP_INFO(this->node->get_logger(), "Subscribed to camera [%d] on topic: %s", i, t_name.c_str());
-  }
+  sub_img = this->node->create_subscription<sensor_msgs::msg::Image>(img_topic, 200000, std::bind(&LIVMapper::img_cbk, this, std::placeholders::_1));
+  
   pubLaserCloudFullRes = this->node->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 100);
   pubNormal = this->node->create_publisher<visualization_msgs::msg::MarkerArray>("/visualization_marker", 100);
   pubSubVisualMap = this->node->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_visual_sub_map_before", 100);
@@ -827,80 +538,13 @@ void LIVMapper::stateEstimationAndMapping()
 
 void LIVMapper::handleVIO() 
 {
-  // euler_cur = RotMtoEuler(_state.rot_end);
-  // if(mat_pre_en && fout_pre.is_open()) {
-  //   fout_pre << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-  //             << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-  //             << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
-  // }
-  // // pcl_w_wait_pub是通过LIO更新的，保存了LIO更新的点云的世界坐标系
-  // if (pcl_w_wait_pub->empty() || (pcl_w_wait_pub == nullptr)) 
-  // {
-  //   std::cout << "[ VIO ] No point!!!" << std::endl;
-  //   return;
-  // }
-    
-  // std::cout << "[ VIO ] Raw feature num: " << pcl_w_wait_pub->points.size() << std::endl;
-
-  // if (fabs((LidarMeasures.last_lio_update_time - _first_lidar_time) - plot_time) < (frame_cnt / 2 * 0.1)) 
-  // {
-  //   vio_manager->plot_flag = true;
-  // } 
-  // else 
-  // {
-  //   vio_manager->plot_flag = false;
-  // }
-  // // _pv_list保存了LIO更新的点云点可以用到的所有信息
-  // // voxelmap_manager->voxel_map_就是那个哈希表
-  // // 因为雷达是单独存的，而IMU和IMAGE是共享的MeasureGroup结构体，所以这个LidarMeasures.measures.back()就是那个图像，因为里面目前的结构是[IMU，Image]
-  // // 之前在sync_packages里面已经知道，last_lio_update_time就是相机时间戳，所以这里相当于算的是相对于第一帧雷达的时间（_first_lidar_time应该算是时间起点了）
-
-  // if (only_render == 0)
-  // { 
-  // vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
-  // }
-  // else
-  // {
-  //   vio_manager->processFrameJustForPointRender(LidarMeasures.measures.back().img, _state);
-  // }
-  
-  // if (imu_prop_enable) 
-  // {
-  //   ekf_finish_once = true;
-  //   latest_ekf_state = _state;
-  //   latest_ekf_time = LidarMeasures.last_lio_update_time;
-  //   state_update_flg = true;
-  // }
-
-  // // int size_sub_map = vio_manager->visual_sub_map_cur.size();
-  // // visual_sub_map->reserve(size_sub_map);
-  // // for (int i = 0; i < size_sub_map; i++) 
-  // // {
-  // //   PointType temp_map;
-  // //   temp_map.x = vio_manager->visual_sub_map_cur[i]->pos_[0];
-  // //   temp_map.y = vio_manager->visual_sub_map_cur[i]->pos_[1];
-  // //   temp_map.z = vio_manager->visual_sub_map_cur[i]->pos_[2];
-  // //   temp_map.intensity = 0.;
-  // //   visual_sub_map->push_back(temp_map);
-  // // }
-
-  // publish_frame_world(pubLaserCloudFullRes, vio_manager);
-  // publish_img_rgb(pubImage, vio_manager);
-
-  // euler_cur = RotMtoEuler(_state.rot_end);
-  // if(mat_out_en && fout_out.is_open()) {
-  //   fout_out << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
-  //             << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
-  //             << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << " " << feats_undistort->points.size() << std::endl;
-  // }
   euler_cur = RotMtoEuler(_state.rot_end);
   if(mat_pre_en && fout_pre.is_open()) {
     fout_pre << std::setw(20) << LidarMeasures.last_lio_update_time - _first_lidar_time << " " << euler_cur.transpose() * 57.3 << " "
               << _state.pos_end.transpose() << " " << _state.vel_end.transpose() << " " << _state.bias_g.transpose() << " "
               << _state.bias_a.transpose() << " " << V3D(_state.inv_expo_time, 0, 0).transpose() << std::endl;
   }
-
-  // 1. 检查特征点
+  // pcl_w_wait_pub是通过LIO更新的，保存了LIO更新的点云的世界坐标系
   if (pcl_w_wait_pub->empty() || (pcl_w_wait_pub == nullptr)) 
   {
     std::cout << "[ VIO ] No point!!!" << std::endl;
@@ -909,53 +553,50 @@ void LIVMapper::handleVIO()
     
   std::cout << "[ VIO ] Raw feature num: " << pcl_w_wait_pub->points.size() << std::endl;
 
-  // 2. 序贯更新：遍历 sync_packages 打包好的多路图像
-  // 每一路图像都会在当前 _state 基础上进行一次 IESKF 迭代修正
-  for (auto &m : LidarMeasures.measures) 
+  if (fabs((LidarMeasures.last_lio_update_time - _first_lidar_time) - plot_time) < (frame_cnt / 2 * 0.1)) 
   {
-    // 根据在 sync_packages 中注入的 cam_id 定位到具体的 CameraUnit
-    int id = m.cam_id; 
-    auto& cu = cameras_[id];
-
-    // 更新该路 VIO 的绘图标志
-    if (fabs((LidarMeasures.last_lio_update_time - _first_lidar_time) - plot_time) < (frame_cnt / 2 * 0.1)) 
-    {
-      cu.vio_manager->plot_flag = true;
-    } 
-    else 
-    {
-      cu.vio_manager->plot_flag = false;
-    }
-
-    // 调用该相机专属的 vio_manager 进行处理
-    if (only_render == 0)
-    { 
-      // 注意：这里传的是 m.img，即 sync_packages 中对齐好的那一帧图像
-      cu.vio_manager->processFrame(m.img, _pv_list, voxelmap_manager->voxel_map_, 
-                                  LidarMeasures.last_lio_update_time - _first_lidar_time);
-    }
-    else
-    {
-      cu.vio_manager->processFrameJustForPointRender(m.img, _state);
-    }
-    // 3. 状态维护：所有相机更新完后，统一刷新全局状态供 IMU 传播使用
-
-    // 4. 可视化更新
-    // 修改 publish 函数，建议传入 cameras_[0].vio_manager 作为主视角参考，或者稍后重构着色逻辑
+    vio_manager->plot_flag = true;
+  } 
+  else 
+  {
+    vio_manager->plot_flag = false;
   }
+  // _pv_list保存了LIO更新的点云点可以用到的所有信息
+  // voxelmap_manager->voxel_map_就是那个哈希表
+  // 因为雷达是单独存的，而IMU和IMAGE是共享的MeasureGroup结构体，所以这个LidarMeasures.measures.back()就是那个图像，因为里面目前的结构是[IMU，Image]
+  // 之前在sync_packages里面已经知道，last_lio_update_time就是相机时间戳，所以这里相当于算的是相对于第一帧雷达的时间（_first_lidar_time应该算是时间起点了）
 
+  if (only_render == 0)
+  { 
+  vio_manager->processFrame(LidarMeasures.measures.back().img, _pv_list, voxelmap_manager->voxel_map_, LidarMeasures.last_lio_update_time - _first_lidar_time);
+  }
+  else
+  {
+    vio_manager->processFrameJustForPointRender(LidarMeasures.measures.back().img, _state);
+  }
+  
   if (imu_prop_enable) 
   {
     ekf_finish_once = true;
-    latest_ekf_state = _state; // _state 已经被上述循环中的多次 processFrame 联合优化过了
+    latest_ekf_state = _state;
     latest_ekf_time = LidarMeasures.last_lio_update_time;
     state_update_flg = true;
   }
-  
-  publish_frame_world(pubLaserCloudFullRes);
-  // publish_frame_world(pubLaserCloudFullRes, nullptr);
-  // publish_frame_world(pubLaserCloudFullRes, cameras_[0].vio_manager);
-  publish_img_rgb(pubImage, cameras_[0].vio_manager);
+
+  // int size_sub_map = vio_manager->visual_sub_map_cur.size();
+  // visual_sub_map->reserve(size_sub_map);
+  // for (int i = 0; i < size_sub_map; i++) 
+  // {
+  //   PointType temp_map;
+  //   temp_map.x = vio_manager->visual_sub_map_cur[i]->pos_[0];
+  //   temp_map.y = vio_manager->visual_sub_map_cur[i]->pos_[1];
+  //   temp_map.z = vio_manager->visual_sub_map_cur[i]->pos_[2];
+  //   temp_map.intensity = 0.;
+  //   visual_sub_map->push_back(temp_map);
+  // }
+
+  publish_frame_world(pubLaserCloudFullRes, vio_manager);
+  publish_img_rgb(pubImage, vio_manager);
 
   euler_cur = RotMtoEuler(_state.rot_end);
   if(mat_out_en && fout_out.is_open()) {
@@ -1089,9 +730,7 @@ void LIVMapper::handleLIO()
   }
   *pcl_w_wait_pub = *laserCloudWorld;
   // 发布当前帧的点云到 ROS
-  // publish_frame_world(pubLaserCloudFullRes, cameras_[0].vio_manager);
-  // publish_frame_world(pubLaserCloudFullRes, nullptr);
-  publish_frame_world(pubLaserCloudFullRes);
+  publish_frame_world(pubLaserCloudFullRes, vio_manager);
   // 可选，发布有效特征点（即参与了状态估计的点）
   if (pub_effect_point_en) publish_effect_world(pubLaserCloudEffect, voxelmap_manager->ptpl_list_);
   if (voxelmap_manager->config_setting_.is_pub_plane_map_) voxelmap_manager->pubVoxelMap();
@@ -1510,64 +1149,6 @@ cv::Mat LIVMapper::getImageFromMsg(const sensor_msgs::msg::Image::ConstSharedPtr
   return img;
 }
 
-void LIVMapper::multi_img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in, int cam_id) {
-  if (!img_en) return;
-
-  // 1. 获取对应相机引用
-  auto& cu = cameras_[cam_id];
-
-  // 2. 预处理逻辑（如 Hilti 数据降频）
-  if (hilti_en) {
-    static std::atomic<int> frame_counter{0};
-    if (++frame_counter % 4 != 0) return;
-  }
-
-  // 3. 时间戳解析
-  double msg_header_time = stamp2Sec(msg_in->header.stamp) + img_time_offset;
-  
-  // 4. 图像去畸变（在锁外执行以利用多核）
-  cv::Mat img_cur = getImageFromMsg(msg_in);
-  cv::Mat img_rectified;
-  if (!cu.map_x.empty() && !cu.map_y.empty()) {
-      cv::remap(img_cur, img_rectified, cu.map_x, cu.map_y, cv::INTER_LINEAR);
-  } else {
-      img_rectified = img_cur;
-  }
-
-  // 5. 进入临界区存入 Buffer
-  mtx_buffer.lock();
-
-  // 时间回跳检查：仅以 cam0 为基准更新全局 last_timestamp_img，防止多路时间交织干扰
-  if (cam_id == 0) {
-    if (msg_header_time < last_timestamp_img) {
-        RCLCPP_ERROR(this->node->get_logger(), "Camera [0] image loop back. \n");
-        mtx_buffer.unlock();
-        return;
-    }
-    // 跳转限制逻辑（参考你原本的代码）
-    if (last_timestamp_img > 0 && (msg_header_time - last_timestamp_img < 0.02)) {
-        RCLCPP_WARN(this->node->get_logger(), "Image timestamp jump too small: %.6f", msg_header_time);
-        mtx_buffer.unlock();
-        sig_buffer.notify_all();
-        return;
-    }
-    last_timestamp_img = msg_header_time;
-  }
-
-  // 存入当前相机独立的 buffer
-  cu.img_buffer.push_back(img_rectified);
-  cu.img_time_buffer.push_back(msg_header_time);
-
-  // 内存管理：RK3588 建议 buffer 深度不要超过 5
-  if (cu.img_buffer.size() > 5) {
-      cu.img_buffer.pop_front();
-      cu.img_time_buffer.pop_front();
-  }
-
-  mtx_buffer.unlock();
-  sig_buffer.notify_all(); // 唤醒 sync_packages
-}
-
 void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
 {
   if (!img_en) return;
@@ -1659,13 +1240,8 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
 bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
 {
   if (lid_raw_data_buffer.empty() && lidar_en) return false;
-  // if (img_buffer.empty() && img_en) return false;
+  if (img_buffer.empty() && img_en) return false;
   if (imu_buffer.empty() && imu_en) return false;
-  if (img_en) {
-    for (int i = 0; i < camera_num_; ++i) {
-        if (cameras_[i].img_buffer.empty()) return false;
-    }
-  }
 
   switch (slam_mode_)
   {
@@ -1733,38 +1309,44 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     // 刚做完VIO更新，现在为LIO更新准备数据，我需要把数据
     case VIO:
     {
-      // --- 1. LIO 准备阶段：以 cam0 的时间为基准对齐 Lidar 和 IMU ---
-      double img_capture_time = cameras_[0].img_time_buffer.front() + exposure_time_init;
-                    
-      if (meas.last_lio_update_time < 0.0) 
-          meas.last_lio_update_time = lid_header_time_buffer.front();
+      // 因为相机在按下快门后，会经过曝光才能拍摄出来，如果这里img_time_buffer的时间是按下快门的时间，这里需要加上曝光时间，不过配置里面是0
+      double img_capture_time = img_time_buffer.front() + exposure_time_init;
+      /*** has img topic, but img topic timestamp larger than lidar end time,
+       * process lidar topic. After LIO update, the meas.lidar_frame_end_time
+       * will be refresh. ***/
+      if (meas.last_lio_update_time < 0.0) meas.last_lio_update_time = lid_header_time_buffer.front();
       
-      double lid_newest_time = lid_header_time_buffer.back() + lid_raw_data_buffer.back()->points.back().curvature / 1000.0;
+      // 雷达和IMU的最新时间
+      double lid_newest_time = lid_header_time_buffer.back() + lid_raw_data_buffer.back()->points.back().curvature / double(1000);
       double imu_newest_time = stamp2Sec(imu_buffer.back()->header.stamp);
 
-      // 检查 Lidar 和 IMU 数据是否覆盖了相机时间戳
-      if (img_capture_time > lid_newest_time || img_capture_time > imu_newest_time) return false;
-
-      // 时间回跳检查
-      if (img_capture_time < meas.last_lio_update_time + 0.00001) {
-          mtx_buffer.lock();
-          for(int i=0; i<camera_num_; ++i) { // 丢弃所有相机过时帧
-              cameras_[i].img_buffer.pop_front();
-              cameras_[i].img_time_buffer.pop_front();
-          }
-          mtx_buffer.unlock();
-          return false;
+      if (img_capture_time < meas.last_lio_update_time + 0.00001)
+      {
+        img_buffer.pop_front();
+        img_time_buffer.pop_front();
+        RCLCPP_ERROR(this->node->get_logger(), "[ Data Cut ] Throw one image frame! \n");
+        return false;
       }
 
-      // 打包 IMU 数据
+      if (img_capture_time > lid_newest_time || img_capture_time > imu_newest_time)
+      {
+        return false;
+      }
+      // 前面的判定应该是为了保证image的时间正好在上次Lidar update之后，同时要保证雷达和IMU数据覆盖到这个image
       struct MeasureGroup m;
+
+      m.imu.clear();
+      // lio_time是相机时间戳
       m.lio_time = img_capture_time;
       mtx_buffer.lock();
-      while (!imu_buffer.empty()) {
-          double t = stamp2Sec(imu_buffer.front()->header.stamp);
-          if (t > m.lio_time) break;
-          if (t > meas.last_lio_update_time) m.imu.push_back(imu_buffer.front());
-          imu_buffer.pop_front();
+      // 只要上次雷达更新之后，到这次image图像之间的imu数据。
+      while (!imu_buffer.empty())
+      {
+        if (stamp2Sec(imu_buffer.front()->header.stamp) > m.lio_time) break;
+
+        if (stamp2Sec(imu_buffer.front()->header.stamp) > meas.last_lio_update_time) m.imu.push_back(imu_buffer.front());
+
+        imu_buffer.pop_front();
       }
       mtx_buffer.unlock();
       sig_buffer.notify_all();
@@ -1817,42 +1399,65 @@ bool LIVMapper::sync_packages(LidarMeasureGroup &meas)
     // 刚做完LIO，准备VIO数据
     case LIO:
     {
-      // --- 2. VIO 准备阶段：提取多路图像 ---
-      if (cameras_[0].img_buffer.empty()) return false;
-      
-      double base_time = cameras_[0].img_time_buffer.front(); // 以 cam0 为基准
+      // double img_capture_time = img_time_buffer.front() + exposure_time_init;
+      // meas.lio_vio_flg = VIO;
+      // // printf("[ Data Cut ] VIO \n");
+      // meas.measures.clear();
+      // double imu_time = stamp2Sec(imu_buffer.front()->header.stamp);
+
+      // struct MeasureGroup m;
+      // m.vio_time = img_capture_time;
+      // m.lio_time = meas.last_lio_update_time;
+      // m.img = img_buffer.front();
+      // mtx_buffer.lock();
+
+      // img_buffer.pop_front();
+      // img_time_buffer.pop_front();
+      // mtx_buffer.unlock();
+      // sig_buffer.notify_all();
+      // meas.measures.push_back(m);
+      // lidar_pushed = false; // after VIO update, the _lidar_frame_end_time will be refresh.
+      // // printf("[ Data Cut ] VIO process time: %lf \n", omp_get_wtime() - t0);
+      // return true;
+      // 1. 先进行外部判空，避免不必要的锁竞争
+      if (img_time_buffer.empty() || img_buffer.empty()) return false;
+
+      double img_capture_time = img_time_buffer.front() + exposure_time_init;
       meas.lio_vio_flg = VIO;
       meas.measures.clear();
 
+      struct MeasureGroup m;
+      m.vio_time = img_capture_time;
+      m.lio_time = meas.last_lio_update_time;
+
+      // 核心原则：加锁 -> 取值 -> 弹出 -> 解锁
+      // 必须在锁内完成赋值，确保 m.img 指向的内存块在弹出前是绝对安全的
       mtx_buffer.lock();
-      for (int i = 0; i < camera_num_; ++i) {
-          auto& cu = cameras_[i];
-          
-          // 强对齐逻辑：剔除该路 buffer 中比 base_time 明显更旧的帧
-          while (cu.img_time_buffer.size() > 1 && 
-                fabs(cu.img_time_buffer[1] - base_time) < fabs(cu.img_time_buffer[0] - base_time)) {
-              cu.img_buffer.pop_front();
-              cu.img_time_buffer.pop_front();
-          }
-
-          struct MeasureGroup m;
-          m.cam_id = i; // ✅ 注入 cam_id！
-          m.img = cu.img_buffer.front();
-          m.vio_time = cu.img_time_buffer.front() + exposure_time_init;
-          m.lio_time = meas.last_lio_update_time;
-          
-          meas.measures.push_back(m);
-
-          // 弹出当前处理的帧
-          cu.img_buffer.pop_front();
-          cu.img_time_buffer.pop_front();
-      }
-      mtx_buffer.unlock();
       
-      lidar_pushed = false;
+      // 双重检查，防止在加锁瞬间 buffer 被其他线程清空导致崩溃
+      if (!img_buffer.empty()) 
+      {
+        // 如果这里直接 m.img = img_buffer.front() 导致撕裂
+        // 且 clone() 导致崩溃，说明内存管理有冲突。
+        // 这里采用赋值，但必须在锁内完成。
+        m.img = img_buffer.front();
+        
+        img_buffer.pop_front();
+        img_time_buffer.pop_front();
+      }
+      else 
+      {
+        mtx_buffer.unlock();
+        return false;
+      }
+      
+      mtx_buffer.unlock();
       sig_buffer.notify_all();
+
+      meas.measures.push_back(m);
+      lidar_pushed = false;
+      
       return true;
-                
     }
 
     default:
@@ -1908,225 +1513,6 @@ void LIVMapper::publish_img_rgb(const image_transport::Publisher &pubImage, VIOM
   out_msg.encoding = sensor_msgs::image_encodings::BGR8;
   out_msg.image = img_rgb;
   pubImage.publish(out_msg.toImageMsg());
-}
-
-void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pubLaserCloudFullRes)
-{
-  if (pcl_w_wait_pub->empty()) return;
-  PointCloudXYZRGB::Ptr laserCloudWorldRGB(new PointCloudXYZRGB());
-  static int pub_num = 1;
-  pub_num++;
-  // 将视觉图像的颜色“贴”到激光雷达点云上。这个只利用目前帧的图像，这部分就是投影加插值
-  if (LidarMeasures.lio_vio_flg == VIO)
-  {
-    *pcl_wait_pub += *pcl_w_wait_pub;
-    if(pub_num >= pub_scan_num)
-    {
-      pub_num = 1;
-      size_t size = pcl_wait_pub->points.size();
-      laserCloudWorldRGB->reserve(size);
-      // double inv_expo = _state.inv_expo_time;
-      double t1 = omp_get_wtime();
-      for (size_t i = 0; i < size; i++)
-      {
-        PointTypeRGB pointRGB;
-        pointRGB.x = pcl_wait_pub->points[i].x;
-        pointRGB.y = pcl_wait_pub->points[i].y;
-        pointRGB.z = pcl_wait_pub->points[i].z;
-        for (int c = 0; c < camera_num_; c++) {
-          VIOManagerPtr vm = cameras_[c].vio_manager;
-          cv::Mat img_rgb = vm->img_rgb;
-
-          V3D p_w(pcl_wait_pub->points[i].x, pcl_wait_pub->points[i].y, pcl_wait_pub->points[i].z);
-          V3D pf(vm->new_frame_->w2f(p_w)); 
-          if (vm->cam_model_type == "Pinhole" && pf[2] < 0) continue;
-          V2D pc(vm->new_frame_->w2c(p_w));
-          // 获取插值后的像素
-          if (vm->new_frame_->cam_->isInFrame(pc.cast<int>(), 3)) // 100
-          {
-            if(vm->cam_model_type == "MEICamera") {
-              // V3F pixel = vio_manager->getInterpolatedPixel(img_rgb, pc);
-              V3F pixel = vm->getInterpolatedPixelFromSphere(img_rgb, pc, pf);
-              if(pixel[0] >= 0) {
-                pointRGB.r = pixel[2];
-                pointRGB.g = pixel[1];
-                pointRGB.b = pixel[0];
-                // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
-                // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
-                // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
-                // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
-                if (pf.norm() > blind_rgb_points) {laserCloudWorldRGB->push_back(pointRGB); break; }
-              }
-            } 
-            else {
-              V3F pixel = vm->getInterpolatedPixel(img_rgb, pc);
-              pointRGB.r = pixel[2];
-              pointRGB.g = pixel[1];
-              pointRGB.b = pixel[0];
-              // pointRGB.r = pixel[2] * inv_expo; pointRGB.g = pixel[1] * inv_expo; pointRGB.b = pixel[0] * inv_expo;
-              // if (pointRGB.r > 255) pointRGB.r = 255; else if (pointRGB.r < 0) pointRGB.r = 0;
-              // if (pointRGB.g > 255) pointRGB.g = 255; else if (pointRGB.g < 0) pointRGB.g = 0;
-              // if (pointRGB.b > 255) pointRGB.b = 255; else if (pointRGB.b < 0) pointRGB.b = 0;
-              if (pf.norm() > blind_rgb_points) {laserCloudWorldRGB->push_back(pointRGB); break; }
-            }
-          }
-        }
-      }
-      double t2 = omp_get_wtime();
-      printf("\033[1;32m[Render Time]: %-27f s\033[0m\n", t2 - t1);
-    }
-  }
-
-  /*** Publish Frame ***/
-  sensor_msgs::msg::PointCloud2 laserCloudmsg;
-  if (slam_mode_ == LIVO && LidarMeasures.lio_vio_flg == VIO)
-  {
-    pcl::toROSMsg(*laserCloudWorldRGB, laserCloudmsg);
-  }
-  if (slam_mode_ == ONLY_LIO || slam_mode_ == ONLY_LO)
-  { 
-    pcl::toROSMsg(*pcl_w_wait_pub, laserCloudmsg); 
-  }
-  laserCloudmsg.header.stamp = this->node->get_clock()->now(); //.fromSec(last_timestamp_lidar);
-  laserCloudmsg.header.frame_id = "camera_init";
-  pubLaserCloudFullRes->publish(laserCloudmsg);
-
-  /**************** save map ****************/
-  /* 1. make sure you have enough memories
-  /* 2. noted that pcd save will influence the real-time performences **/
-  double update_time = 0.0;
-  if (LidarMeasures.lio_vio_flg == VIO) {
-    update_time = LidarMeasures.measures.back().vio_time;
-  } else { // LIO / LO
-    update_time = LidarMeasures.measures.back().lio_time;
-  }
-  std::stringstream ss_time;
-  ss_time << std::fixed << std::setprecision(6) << update_time;
-
-  if (pcd_save_en)
-  {
-    static int scan_wait_num = 0;
-
-    switch (pcd_save_type)
-    {
-      case 0: /** world frame **/
-        if (slam_mode_ == LIVO)
-        {
-          // LIVO模式：优先保存VIO生成的彩色点云
-          if (LidarMeasures.lio_vio_flg == VIO)
-          {
-            if (laserCloudWorldRGB->size() > 0)
-            {
-              // 有彩色点云时，累积彩色点云
-              *pcl_wait_save += *laserCloudWorldRGB;
-              scan_wait_num++;
-              std::cout << "[PCD Save] Accumulated " << laserCloudWorldRGB->size() 
-                        << " RGB points. Total: " << pcl_wait_save->size() << std::endl;
-            }
-            else
-            {
-              // 如果VIO时没有生成彩色点云（pub_num < pub_scan_num），累积灰度点云作为备用
-              // 这样即使程序被中断，也能保存部分点云
-              if (pcl_w_wait_pub->size() > 0)
-              {
-                *pcl_wait_save_intensity += *pcl_w_wait_pub;
-                scan_wait_num++;
-                std::cout << "[PCD Save] VIO mode but no RGB points, accumulated " 
-                          << pcl_w_wait_pub->size() << " intensity points. Total: " 
-                          << pcl_wait_save_intensity->size() << std::endl;
-              }
-            }
-          }
-          else if (LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO)
-          {
-            // LIO模式下不累积点云，因为它们是中间状态，会在下一次VIO时被着色
-            // 如果用户想要保存所有点云，可以取消下面的注释
-            // *pcl_wait_save_intensity += *pcl_w_wait_pub;
-            // scan_wait_num++;
-          }
-        }
-        else
-        {
-          // ONLY_LIO或ONLY_LO模式：保存灰度点云
-          *pcl_wait_save_intensity += *pcl_w_wait_pub;
-          if(LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO) 
-          {
-            scan_wait_num++;
-            std::cout << "[PCD Save] LIO/LO mode, accumulated " << pcl_w_wait_pub->size() 
-                      << " intensity points. Total: " << pcl_wait_save_intensity->size() << std::endl;
-          }
-        }
-        break;
-
-      case 1: /** body frame **/
-        if (LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO)
-        {
-          int size = feats_undistort->points.size();
-          PointCloudXYZI::Ptr laserCloudBody(new PointCloudXYZI(size, 1));
-          for (int i = 0; i < size; i++)
-          {
-            RGBpointBodyLidarToIMU(&feats_undistort->points[i], &laserCloudBody->points[i]);
-          }
-          *pcl_wait_save_intensity += *laserCloudBody;
-          scan_wait_num++;
-          cout << "save body frame points: " << pcl_wait_save_intensity->points.size() << endl;
-        }
-        pcd_save_interval = 1;
-        
-        break;
-
-      default:
-        pcd_save_interval = 1;
-        scan_wait_num++;
-        break;
-    }
-    if ((pcl_wait_save->size() > 0 || pcl_wait_save_intensity->size() > 0) && pcd_save_interval > 0 && scan_wait_num >= pcd_save_interval)
-    {
-      string all_points_dir(string(string(ROOT_DIR) + "Log/pcd/") + ss_time.str() + string(".pcd"));
-
-      pcl::PCDWriter pcd_writer;
-
-      cout << "current scan saved to " << all_points_dir << endl;
-      if (pcl_wait_save->points.size() > 0)
-      {
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save); // pcl::io::savePCDFileASCII(all_points_dir, *pcl_wait_save);
-        PointCloudXYZRGB().swap(*pcl_wait_save);
-      }
-      if(pcl_wait_save_intensity->points.size() > 0)
-      {
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save_intensity);
-        PointCloudXYZI().swap(*pcl_wait_save_intensity);
-      }
-      scan_wait_num = 0;
-    }
-    
-    if(LidarMeasures.lio_vio_flg == LIO || LidarMeasures.lio_vio_flg == LO)
-    {
-      Eigen::Quaterniond q(_state.rot_end);
-      fout_lidar_pos << std::fixed << std::setprecision(6);
-      fout_lidar_pos <<  LidarMeasures.measures.back().lio_time << " " << _state.pos_end[0] << " " << _state.pos_end[1] << " " << _state.pos_end[2] << " " << q.x() << " " << q.y() << " " << q.z()
-          << " " << q.w() << " " << endl;
-    }
-  }
-  if (img_save_en && LidarMeasures.lio_vio_flg == VIO)
-  {
-    static int img_wait_num = 0;
-    img_wait_num++;
-
-    if (img_save_interval > 0 && img_wait_num >= img_save_interval)
-    {
-      imwrite(string(string(ROOT_DIR) + "Log/image/") + ss_time.str() + string(".png"), cameras_[0].vio_manager->img_rgb);
-      
-      Eigen::Quaterniond q(_state.rot_end);
-      fout_visual_pos << std::fixed << std::setprecision(6);
-      fout_visual_pos << LidarMeasures.measures.back().vio_time << " " << _state.pos_end[0] << " " << _state.pos_end[1] << " " << _state.pos_end[2] << " "
-            << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << std::endl;
-      img_wait_num = 0;
-    }
-  }
-
-  if(laserCloudWorldRGB->size() > 0) PointCloudXYZI().swap(*pcl_wait_pub); 
-  if(LidarMeasures.lio_vio_flg == VIO) PointCloudXYZI().swap(*pcl_w_wait_pub);
 }
 
 // Provide output format for LiDAR-visual BA
@@ -2332,7 +1718,7 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
 
     if (img_save_interval > 0 && img_wait_num >= img_save_interval)
     {
-      imwrite(string(string(ROOT_DIR) + "Log/image/") + ss_time.str() + string(".png"), cameras_[0].vio_manager->img_rgb);
+      imwrite(string(string(ROOT_DIR) + "Log/image/") + ss_time.str() + string(".png"), vio_manager->img_rgb);
       
       Eigen::Quaterniond q(_state.rot_end);
       fout_visual_pos << std::fixed << std::setprecision(6);
@@ -2342,8 +1728,8 @@ void LIVMapper::publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::Po
     }
   }
 
-  if(laserCloudWorldRGB->size() > 0) PointCloudXYZI().swap(*pcl_wait_pub); 
-  if(LidarMeasures.lio_vio_flg == VIO) PointCloudXYZI().swap(*pcl_w_wait_pub);
+  if(laserCloudWorldRGB->size() > 0)  PointCloudXYZI().swap(*pcl_wait_pub); 
+  if(LidarMeasures.lio_vio_flg == VIO)  PointCloudXYZI().swap(*pcl_w_wait_pub);
 }
 
 void LIVMapper::publish_visual_sub_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pubSubVisualMap)

@@ -1,0 +1,125 @@
+/**:
+  ros__parameters:
+    common:
+      # 代码根据此列表长度动态创建相机实例
+      camera_names: ["cam0"]
+      lid_topic: "/livox/lidar"
+      imu_topic: "/livox/imu"
+      img_en: 1
+      lidar_en: 1
+      only_render: 0
+      ros_driver_bug_fix: false
+
+    # 雷达到 IMU 的外参 (全局)
+    extrin_calib:
+      # 从 LiDAR 坐标系到 IMU 坐标系的平移向量
+      extrinsic_T: [0.04165, 0.02326, -0.0284]
+      extrinsic_R: [1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0]
+
+    # --- 第一个相机配置 (cam0) ---
+    cam0:
+      topic: "/left_camera/image"
+      # 请根据实际模型修改 (PINHOLE, MEI, KB4 等)
+      model: PINHOLE 
+      width: 1280
+      height: 1024
+      scale: 0.5
+      # 以下内参原配置未提供，请填入实际标定值
+      fx: 1293.56944
+      fy: 1293.3155
+      cx: 626.91359
+      cy: 522.799224
+      k1: -0.076160
+      k2: 0.123001
+      k3: 0.0
+      k4: 0.0
+      p1: -0.00113
+      p2: 0.000251
+      virtual_width: 1280
+      virtual_height: 1024
+      ax: 120.0
+      ay: 120.0
+      # 核心转换：此为 Camera 相对于 IMU 的外参 (T_I_C)
+      # 基于 Rcl/Pcl (L->C) 和 extrinsic_T/R (L->I) 计算得出
+      extrin_R: [0.00610193, -0.999863, -0.0154172,
+                 -0.00615449, 0.0153796, -0.999863,
+                 0.999962, 0.00619598, -0.0060598]
+      extrin_T: [-0.0222116, 0.081429, 0.0032048]
+
+    time_offset:
+      imu_time_offset: 0.0
+      img_time_offset: 0.1
+      exposure_time_init: 0.0
+
+    preprocess:
+      point_filter_num: 1
+      filter_size_surf: 0.1
+      lidar_type: 1 # Livox Avia
+      scan_line: 6
+      blind: 0.8
+
+    vio:
+      max_iterations: 5
+      outlier_threshold: 1000
+      img_point_cov: 100
+      patch_size: 8
+      patch_pyrimid_level: 4
+      normal_en: true
+      raycast_en: false
+      inverse_composition_en: false
+      exposure_estimate_en: true
+      inv_expo_cov: 0.1
+
+    imu:
+      imu_en: true
+      imu_int_frame: 30
+      acc_cov: 0.5
+      gyr_cov: 0.3
+      b_acc_cov: 0.0001
+      b_gyr_cov: 0.0001
+
+    lio:
+      max_iterations: 5
+      dept_err: 0.02
+      beam_err: 0.05
+      min_eigen_value: 0.0025
+      voxel_size: 0.5
+      max_layer: 2
+      max_points_num: 50
+      layer_init_num: [5, 5, 5, 5, 5]
+
+    local_map:
+      map_sliding_en: false
+      half_map_size: 100
+      sliding_thresh: 8.0
+
+    uav:
+      imu_rate_odom: false
+      gravity_align_en: false
+
+    publish:
+      dense_map_en: true
+      pub_effect_point_en: false
+      pub_plane_en: false
+      pub_scan_num: 1
+      blind_rgb_points: 0.0
+
+    evo:
+      seq_name: "CBD_Building_01"
+      pose_output_en: false
+
+    pcd_save:
+      pcd_save_en: false
+      filter_size_pcd: 0.15
+      interval: -1
+
+    image_save:
+      img_save_en: false
+      interval: 1
+
+    debug_log:
+      mat_pre_en: false
+      mat_out_en: false
+      imu_log_en: false

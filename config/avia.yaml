@@ -56,9 +56,9 @@
       # 使用 warp_map 缓存：提高计算效率
       normal_en: true
       # 是否开启raycast，这个的作用是当某个grid里面没有visual map point时，通过raycast来从地图里面找点填充
-      raycast_en: false
+      raycast_en: true
       # 开启后，进行逆向传播IC，优化位姿
-      inverse_composition_en: false
+      inverse_composition_en: ture
       # 开启 exposure_estimate_en 后，系统会在 EKF 中估计相机的曝光时间（以逆曝光时间 inv_expo_time 的形式）
       # 曝光时间的倒数，inv_expo_time = 1 / exposure_time
       exposure_estimate_en: true
