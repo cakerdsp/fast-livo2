@@ -1,0 +1,29 @@
+# MEI (Unified Camera Model) Configuration Example
+# This is an example configuration file for MEI fisheye camera model
+# 
+# MEI Model Parameters:
+#   - xi: mirror parameter (unified model parameter, typically 0.5-1.5 for fisheye)
+#   - k1, k2: radial distortion parameters (optional)
+#   - p1, p2: tangential distortion parameters (optional)
+#
+# Reference: "A Generic Camera Model and Calibration Method for Conventional, 
+#            Wide-Angle, and Fish-Eye Lenses" by Davide Scaramuzza, et al.
+#
+# Usage: Include this in your main config file under parameter_blackboard section
+
+/**:
+  ros__parameters:
+    parameter_blackboard:
+      model: MEI
+      width: 640
+      height: 480
+      scale: 1.0
+      fx: 300.0
+      fy: 300.0
+      cx: 320.0
+      cy: 240.0
+      xi: 1.0          # Mirror parameter (key parameter for MEI model)
+      k1: 0.0          # Radial distortion coefficient 1 (optional)
+      k2: 0.0          # Radial distortion coefficient 2 (optional)
+      p1: 0.0          # Tangential distortion coefficient 1 (optional)
+      p2: 0.0          # Tangential distortion coefficient 2 (optional)
