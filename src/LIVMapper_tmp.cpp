@@ -292,9 +292,9 @@ void LIVMapper::initializeComponents(rclcpp::Node::SharedPtr &node)
   slam_mode_ = (img_en && lidar_en) ? LIVO : imu_en ? ONLY_LIO : ONLY_LO;
 
 
-  map_x0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
-  map_y0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
-  precomputeMappingTable(map_x0, map_y0, cam0);
+  // map_x0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  // map_y0.create(cam0.virtual_height, cam0.virtual_width, CV_32FC1);
+  // precomputeMappingTable(map_x0, map_y0, cam0);
 
 }
 
@@ -1161,10 +1161,11 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
   // }
 
   // Hiliti2022 40Hz
+  // shiyaun 20Hz
   if (hilti_en)
   {
     static int frame_counter = 0;
-    if (++frame_counter % 4 != 0) return;
+    if (++frame_counter % 2 != 0) return;
   }
   // double msg_header_time =  stamp2Sec(msg->header.stamp);
   // 消除硬同步时图像帧读取上一个雷达的时间帧的共享内存带来的时间差
@@ -1201,7 +1202,10 @@ void LIVMapper::img_cbk(const sensor_msgs::msg::Image::ConstSharedPtr &msg_in)
   if (!map_x0.empty() && !map_y0.empty()) 
   {
     // 这里只进行像素搬运，没有任何复杂的数学运算，保证实时性
+    double t0 = omp_get_wtime();
     cv::remap(img_cur,img_rectified, map_x0, map_y0, cv::INTER_LINEAR);
+    double t1 = omp_get_wtime();
+    printf("\033[95m remap time: %lf \033[0m\n", t1 - t0);
   }
   else 
   {

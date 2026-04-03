@@ -5,7 +5,7 @@
       img_topic: "/fisheye/left/image_raw"  
       lid_topic: "/livox/lidar"  
       imu_topic: "/livox/imu"  
-      img_en: 1  
+      img_en: 1
       lidar_en: 1 
       only_render: 0
       ros_driver_bug_fix: false  
@@ -32,17 +32,23 @@
 
 
       # MEI 的 鱼眼外参fast_calib
-      Rcl: [  0.690133,  -0.723576,  -0.012412,
-       -0.025754,  -0.007417,  -0.999641,
-        0.723224,   0.690205,  -0.023754]
-      Pcl: [  0.053552,   0.040743,  -0.017474]
+      # Rcl: [  0.690133,  -0.723576,  -0.012412,
+      #  -0.025754,  -0.007417,  -0.999641,
+      #   0.723224,   0.690205,  -0.023754]
+      # Pcl: [  0.053552,   0.040743,  -0.017474]
+
+      # 3月15号的二次标定后的外参
+      Rcl: [ 0.71787, -0.69617, -0.00210,
+      -0.02115, -0.01878, -0.99960,
+       0.69585,  0.71763, -0.02821 ]
+      Pcl: [ -0.01710, 0.11155, -0.01546 ]
 
 
 
       
     time_offset:  
       imu_time_offset: 0.0  # IMU 时间偏移（单位：秒）
-      img_time_offset: 0.0  
+      img_time_offset: 1.0
       exposure_time_init: 0.0  
 
     preprocess:  

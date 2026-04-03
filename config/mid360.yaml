@@ -26,7 +26,7 @@
       
     time_offset:  
       imu_time_offset: 0.0  # IMU 时间偏移（单位：秒）
-      img_time_offset: 0.1  
+      img_time_offset: 0.0  
       exposure_time_init: 0.0  
 
     preprocess:  

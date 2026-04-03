@@ -2,14 +2,15 @@
   ros__parameters:
     common: 
       # 1. 必须添加此项，代码根据这个列表长度动态创建相机实例
-      camera_names: ["cam0", "cam1"] 
-      # camera_names: ["cam0"] 
+      # camera_names: ["cam0", "cam1"] 
+      camera_names: ["cam0"] 
       lid_topic: "/livox/lidar"  
       imu_topic: "/livox/imu"  
       img_en: 1  
       lidar_en: 1 
       only_render: 0
       ros_driver_bug_fix: false  
+      
 
     # 雷达到 IMU 的外参 (全局)
     extrin_calib:
@@ -41,10 +42,39 @@
       ax: 120.0
       ay: 120.0
       # 3. 必须添加：该相机相对于 IMU 的外参 (对应 ns + ".extrin_T/R")
-      extrin_T: [0.053552, 0.040743, -0.017474] 
-      extrin_R: [0.690133, -0.723576, -0.012412,
-                 -0.025754, -0.007417, -0.999641,
-                 0.723224, 0.690205, -0.023754]
+      # extrin_T: [0.053552, 0.040743, -0.017474] 
+      # extrin_R: [0.690133, -0.723576, -0.012412,
+      #            -0.025754, -0.007417, -0.999641,
+      #            0.723224, 0.690205, -0.023754]
+      extrin_R: [ 0.71787, -0.69617, -0.00210,
+      -0.02115, -0.01878, -0.99960,
+       0.69585,  0.71763, -0.02821 ]
+      extrin_T: [ -0.01710, 0.11155, -0.01546 ]
+    # cam0:
+    #   topic: "/fisheye/right/image_raw"
+    #   model: MEI
+    #   width: 1088
+    #   height: 1280
+    #   scale: 1.0
+    #   fx: 1654.557757641849
+    #   fy: 1654.5555014207516
+    #   cx: 550.895469810216
+    #   cy: 630.3619288875246
+    #   xi: 3.1815826134893497
+    #   k1: -0.04385016839322362
+    #   k2: 0.2801477393207194
+    #   k3: 0.0
+    #   k4: 0.0
+    #   p1: -0.0031983324994750394
+    #   p2: -0.0016836432295666694
+    #   virtual_width: 1080
+    #   virtual_height: 1080
+    #   ax: 120.0
+    #   ay: 120.0
+    #   extrin_T: [-0.00416, 0.03444, -0.03025]
+    #   extrin_R: [-0.70975, -0.70374, 0.03187,
+    #             -0.02567, -0.01937, -0.99948,
+    #               0.70399, -0.71020, -0.00432]
 
     # --- 第二个相机配置 (cam1) ---
     cam1:
@@ -76,12 +106,12 @@
     # --- 其他全局参数保持不变 ---
     time_offset:  
       imu_time_offset: 0.0
-      img_time_offset: 0.0  
+      img_time_offset: 1.0
       exposure_time_init: 0.0  
 
     preprocess:  
       point_filter_num: 1
-      filter_size_surf: 0.1
+      filter_size_surf: 0.2
       lidar_type: 1
       scan_line: 4
       blind: 0.8
@@ -93,7 +123,7 @@
       patch_size: 8  
       patch_pyrimid_level: 4  
       normal_en: true 
-      raycast_en: true 
+      raycast_en: false 
       inverse_composition_en: false
       exposure_estimate_en: true  
       inv_expo_cov: 0.1  

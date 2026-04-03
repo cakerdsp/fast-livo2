@@ -1,0 +1,128 @@
+/**:
+  ros__parameters:
+    common:
+      camera_names: ["cam0"]
+      lid_topic: "/hesai/pandar"     # 匹配你 bag 中的 Hesai Topic
+      imu_topic: "/alphasense/imu"   # 匹配你原配置中的 IMU Topic
+      img_en: 0
+      lidar_en: 1
+      only_render: 0
+      ros_driver_bug_fix: false
+
+    # 雷达到 IMU 的外参 (根据你原配置 Hilti-2022 部分)
+    extrin_calib:
+      extrinsic_T: [-0.001, -0.00855, 0.055] 
+      extrinsic_R: [0.0, -1.0, 0.0, 
+                    -1.0, 0.0, 0.0, 
+                    0.0, 0.0, -1.0]
+
+    # --- 相机配置 (cam0) ---
+    # 注：由于原配置未提供相机内参，此处保留你模板中的示例值，建议根据实际标定文件替换
+    cam0:
+      topic: "/alphasense/cam0/image_raw"
+      model: KB4              # EquidistantCamera 对应 KB4 模型
+      width: 720              # 更改为你的实际分辨率
+      height: 540
+      scale: 1.0
+      # 内参 (Intrinsics)
+      fx: 351.31400364
+      fy: 351.49117446
+      cx: 367.85227933
+      cy: 253.84021449
+      # 畸变参数 (Distortion)
+      k1: -0.03696737
+      k2: -0.00891788
+      k3: 0.00891296
+      k4: -0.00376859
+      p1: 0.0                 # KB4 模型一般不使用 p1, p2
+      p2: 0.0
+      virtual_width: 720
+      virtual_height: 540
+      ax: 90.0
+      ay: 90.0
+      # 此处填入 Camera 相对于 IMU 的外参 (T_I_C)
+      # 基于原配置中 Rcl/Pcl (L->C) 和 extrinsic_T/R (L->I) 计算得出
+      extrin_R: [ -0.999926,  -0.0100912, 0.00673218,
+                  -0.00670802, -0.00242564, -0.999975,
+                   0.0101073,  -0.999946, 0.00235777 ]
+      extrin_T: [ -0.0549762, 0.0675401, -0.0520599 ]
+
+    time_offset:
+      imu_time_offset: 0.0
+      img_time_offset: 0.0
+      exposure_time_init: 0.0
+
+    preprocess:
+      hilti_en: true
+      point_filter_num: 1
+      filter_size_surf: 0.1
+      # 【重要修改】针对 Hesai PointCloud2 数据集：
+      # 通常 FAST-LIVO 的 ROS 2 版中 lidar_type: 2 代表标准 PointCloud2
+      # 5 可能是原版针对 Hesai 的特定优化，请优先尝试 2 或 5
+      lidar_type: 5 
+      scan_line: 32
+      blind: 0.6
+
+    vio:
+      max_iterations: 5
+      outlier_threshold: 500
+      img_point_cov: 1000
+      patch_size: 8
+      patch_pyrimid_level: 4
+      normal_en: true
+      raycast_en: false
+      inverse_composition_en: false
+      exposure_estimate_en: true
+      inv_expo_cov: 0.1
+
+    imu:
+      imu_en: true
+      imu_int_frame: 30
+      acc_cov: 0.5
+      gyr_cov: 0.01
+      b_acc_cov: 0.0001
+      b_gyr_cov: 0.0001
+
+    lio:
+      max_iterations: 5
+      dept_err: 0.02
+      beam_err: 0.05
+      min_eigen_value: 0.0001
+      voxel_size: 0.4
+      max_layer: 2
+      max_points_num: 100
+      layer_init_num: [5, 5, 5, 5, 5]
+
+    local_map:
+      map_sliding_en: false
+      half_map_size: 100
+      sliding_thresh: 8.0
+
+    uav:
+      imu_rate_odom: false
+      gravity_align_en: false
+
+    publish:
+      dense_map_en: true
+      pub_effect_point_en: false
+      pub_plane_en: false
+      pub_scan_num: 1
+      blind_rgb_points: 0.0
+
+    evo:
+      seq_name: "exp09_cupola"
+      pose_output_en: true
+
+    pcd_save:
+      pcd_save_en: false
+      filter_size_pcd: 0.15
+      interval: -1
+
+    image_save:
+      img_save_en: false
+      interval: 1
+
+    debug_log:
+      mat_pre_en: false
+      mat_out_en: false
+      imu_log_en: false
